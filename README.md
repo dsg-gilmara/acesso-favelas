@@ -4,7 +4,7 @@
 
 # Codigo do repositorio Acesso Favelas
 
-Os seguintes codigos estao publicados:
+Os seguintes códigos estão publicados:
 
 - Codigo 1
 - Codigo 2
@@ -13,22 +13,21 @@ Com o objetivo de ...
 
 ![USP](./imagens/usp-logo-png-1.png)
 
-This repository contains a small python code [example workflow](./codigos/acesso-favelas-1.py). O python recebe algumas informacoes como dado x, dado y, depois
-´re realizado o processo xyz que resultado no dado abc.
+Este repositório contém um pequeno código em Python. [examplo](./codigos/acesso-favelas-1.py). O python recebe algumas informacoes como dado x, dado y, depois é realizado o processo xyz que resultado no dado abc.
 
 ## Instalação
 
-Copie o repositorio
+Copie o repositório
 ```bash
 git clone https://github.com/dsg-gilmara/acesso-favelas.git
 ```
 
-Va ate a pasta
+Vá até a pasta
 ```bash
 cd acesso-favelas
 ```
 
-Rode o codigo
+Rode o código
 ```bash
 python acesso-favelas.py
 ```
@@ -38,13 +37,13 @@ Colete os dados em
 pasta xyz
 ```
 
-## Configuration
+## Configuração
 
-### Pre-requisitos
+### Pré-requisítos
 
-Tenha inslado o Python
+Tenha instalado o Python
 Tenha instalado o QGIS
-As seguintes bibliotecas sao necessarias:
+As seguintes bibliotecas são necessárias:
 
 
 
@@ -75,3 +74,4 @@ Este projeto foi escrito e é mantido pelo(s) seguinte(s) indivíduo(s):
 ## Credito(s)
 
 * Professora Tal
+
