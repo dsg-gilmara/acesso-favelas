@@ -1,0 +1,304 @@
+---
+title: "setor_processamento"
+output: html_document
+date: "2024-10-24"
+---
+
+```{r}
+#abrindo as bibliotecas necessárias
+library(data.table)
+library(broom)
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+library(knitr)
+library(DT)
+library(geobr)
+library(sf)
+library(lwgeom)
+
+library(readxl)
+library(cleangeo)
+
+library(dplyr)
+
+#notacao cientifica
+options(scipen=999)
+```
+
+
+
+
+
+#processamento dados censitários 2010 - dasimetria
+```{r}
+
+ # Carregar o shapefile dos setores (substitua pelo caminho correto)
+  setores <- st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/setores_cnefe/setores_cnefe.shp")
+
+#area urbanizada IBGE 2019
+urb<-st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/area_urb.shp")
+
+
+# Verificar o sistema de coordenadas
+st_crs(setores)
+st_crs(urb)
+
+urb<-st_transform(urb,4674)
+
+#dissolver a camada urbana
+urb<-st_union(urb)
+
+
+#Recortar setores pela área urbanizada e calcular área
+#area do sirgas 2000 - atentar para na hora de converter os dados populacionais também precisam estar em área do sirgas 2000
+
+setores_recorte <- st_intersection(setores, urb)
+#calculo área
+setores_recorte<-setores_recorte%>%
+  mutate(area_recorte=st_area(.))
+
+#calcular as variáveis censitárias como densidades
+setores_recorte<-setores_recorte%>%
+  mutate(
+d_domicls=	domicls/area_recorte,
+d_moradrs=	moradrs/area_recorte,
+d_agua=	agua/area_recorte,
+d_redeesg=	redeesg/area_recorte,
+d_fossa=	fossa/area_recorte,
+d_sban=	sban/area_recorte,
+d_clixo=	clixo/area_recorte,
+d_totlrnd	=totlrnd/area_recorte,
+d_ttlrndm=	ttlrndm/area_recorte,
+d_sm1_8=	sm1_8/area_recorte,
+d_sm1_4=	sm1_4/area_recorte,
+d_smmeio=	smmeio/area_recorte,
+d_smmei_1=	smmei_1/area_recorte,
+d_sm1_2=	sm1_2/area_recorte,
+d_sm2_3=	sm2_3/area_recorte,
+d_sm3_5=	sm3_5/area_recorte,
+d_sm5_10=	sm5_10/area_recorte,
+d_sm_10=	sm_10/area_recorte,
+d_semrend=	semrend/area_recorte,
+d_branca=	branca/area_recorte,
+d_preta=	preta/area_recorte,
+d_amarela=	amarela/area_recorte,
+d_parda=	parda/area_recorte,
+d_indigen=	indigen/area_recorte,
+d_V009=	V009/area_recorte,
+d_V011=	V011/area_recorte,
+d_V013=	V013/area_recorte,
+d_V015=	V015/area_recorte,
+d_V017=	V017/area_recorte,
+d_V019=	V019/area_recorte,
+d_V021=	V021/area_recorte,
+d_V023=	V023/area_recorte,
+d_V025=	V025/area_recorte,
+d_V050=	V050/area_recorte,
+d_V052=	V052/area_recorte,
+d_V054=	V054/area_recorte,
+d_V056=	V056/area_recorte,
+d_V058=	V058/area_recorte,
+d_V060=	V060/area_recorte,
+d_CNEFE=	CNEFE/area_recorte)
+
+
+```
+
+#Intersecção a grade ocupada
+
+
+```{r}
+#intersect com setores
+
+#intersect grade e setores recortados
+grade_intersect<- st_intersection(grade_distinta, setores_recorte)
+#calcular nova área
+  grade_int<-grade_intersect%>%
+    mutate(area_int=st_area(.))
+
+```
+
+
+#NOVOS TOTAIS DE POP
+
+```{r}
+
+#Totais intermediários - por parte interseccionada na grade
+grade_int<-grade_int%>%
+  mutate(
+n_domicls=	d_domicls*area_int,
+n_moradrs=	d_moradrs*area_int,
+n_agua=	d_agua*area_int,
+n_redeesg=	d_redeesg*area_int,
+n_fossa=	d_fossa*area_int,
+n_sban=	d_sban*area_int,
+n_clixo=	d_clixo*area_int,
+n_totlrnd=	d_totlrnd*area_int,
+n_ttlrndm=	d_ttlrndm*area_int,
+n_sm1_8=	d_sm1_8*area_int,
+n_sm1_4=	d_sm1_4*area_int,
+n_smmeio=	d_smmeio*area_int,
+n_smmei_1=	d_smmei_1*area_int,
+n_sm1_2=	d_sm1_2*area_int,
+n_sm2_3=	d_sm2_3*area_int,
+n_sm3_5=	d_sm3_5*area_int,
+n_sm5_10=	d_sm5_10*area_int,
+n_sm_10=	d_sm_10*area_int,
+n_semrend=	d_semrend*area_int,
+n_branca=	d_branca*area_int,
+n_preta=	d_preta*area_int,
+n_amarela=	d_amarela*area_int,
+n_parda=	d_parda*area_int,
+n_indigen=	d_indigen*area_int,
+n_V009=	d_V009*area_int,
+n_V011=	d_V011*area_int,
+n_V013=	d_V013*area_int,
+n_V015=	d_V015*area_int,
+n_V017=	d_V017*area_int,
+n_V019=	d_V019*area_int,
+n_V021=	d_V021*area_int,
+n_V023=	d_V023*area_int,
+n_V025=	d_V025*area_int,
+n_V050=	d_V050*area_int,
+n_V052=	d_V052*area_int,
+n_V054=	d_V054*area_int,
+n_V056=	d_V056*area_int,
+n_V058=	d_V058*area_int,
+n_V060=	d_V060*area_int,
+n_CNEFE=	d_CNEFE*area_int  )
+
+
+#salvar grade distinta
+write_sf(grade_distinta,"D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/grade_intersect/grid_distinta.shp")
+
+#salvar grade interseccionada intermediária
+write_sf(grade_int,"D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/grade_intersect/grid_int_int.shp")
+
+
+#salvar csv info_grade
+info_grade<-st_drop_geometry(grade_info)
+write.csv(info_grade,"D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/grade_intersect/grade_info.csv")
+
+```
+
+#GROUP BY ID HEX, NOVOS TOTAIS - SOMA
+```{r}
+grade_fim<-st_drop_geometry(grade_int)
+
+grade_fim<-grade_fim%>%group_by(id_hex)%>%
+  summarise(
+code_mn=first(code_mn),
+f_domicls=sum(n_dmcls,na.rm=T),
+f_moradrs=sum(n_mrdrs,na.rm=T),
+f_agua=sum(n_agua,na.rm=T),
+f_redeesg=sum(n_redsg,na.rm=T),
+f_fossa=sum(n_fossa,na.rm=T),
+f_sban=sum(n_sban,na.rm=T),
+f_clixo=sum(n_clixo,na.rm=T),
+f_totlrnd=sum(n_totlrnd,na.rm=T),
+f_ttlrndm=sum(n_ttlrndm,na.rm=T),
+f_sm1_8=sum(n_sm1_8,na.rm=T),
+f_sm1_4=sum(n_sm1_4,na.rm=T),
+f_smmeio=sum(n_smmei,na.rm=T),
+f_smmei_1=sum(n_smm_1,na.rm=T),
+f_sm1_2=sum(n_sm1_2,na.rm=T),
+f_sm2_3=sum(n_sm2_3,na.rm=T),
+f_sm3_5=sum(n_sm3_5,na.rm=T),
+f_sm5_10=sum(n_s5_10,na.rm=T),
+f_sm_10=sum(n_sm_10,na.rm=T),
+f_semrend=sum(n_smrnd,na.rm=T),
+f_branca=sum(n_branc,na.rm=T),
+f_preta=sum(n_preta,na.rm=T),
+f_amarela=sum(n_amarl,na.rm=T),
+f_parda=sum(n_parda,na.rm=T),
+f_indigen=sum(n_indgn,na.rm=T),
+f_V009=sum(n_V009,na.rm=T),
+f_V011=sum(n_V011,na.rm=T),
+f_V013=sum(n_V013,na.rm=T),
+f_V015=sum(n_V015,na.rm=T),
+f_V017=sum(n_V017,na.rm=T),
+f_V019=sum(n_V019,na.rm=T),
+f_V021=sum(n_V021,na.rm=T),
+f_V023=sum(n_V023,na.rm=T),
+f_V025=sum(n_V025,na.rm=T),
+f_V050=sum(n_V050,na.rm=T),
+f_V052=sum(n_V052,na.rm=T),
+f_V054=sum(n_V054,na.rm=T),
+f_V056=sum(n_V056,na.rm=T),
+f_V058=sum(n_V058,na.rm=T),
+f_V060=sum(n_V060,na.rm=T),
+f_CNEFE=sum(n_CNEFE,na.rm=T))
+
+#salvar csv
+write.csv(grade_fim,"D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/grade_intersect/grade_fim.csv")
+  
+
+```
+
+#calculando variáveis e integrando demais informações
+```{r}
+#abri base de grades ocupadas
+grade_distinta<-st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/grade_intersect/grid_distinta.shp")
+grade_int<-st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/grade_intersect/grid_int_int.shp")
+
+
+
+duplicados_info_censo <- grade_int %>%
+  group_by(id_hex) %>%
+  filter(n() > 1) %>%
+  ungroup()
+
+#infos censo
+info_censo<-read.csv("D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/grade_intersect/grade_fim.csv")
+
+#info agsn - Favelas e comunidades urbanas
+info_agsn<-read.csv("D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/grid_agsn.csv")%>%
+  rename(agsn_area=Geometrias.corrigidas_area,
+         p_agsn=Geometrias.corrigidas_pc)
+
+
+#grade_info - calcular área
+  grade_final<-grade_distinta%>%
+    mutate(area_hex=st_area(.))
+
+#junções
+
+grade_final2<-grade_final%>%  left_join(info_grade_rev,by="id_hex")%>%
+  left_join(info_agsn,by="id_hex")%>%
+  left_join(grade_fim, by="id_hex")
+
+
+#salvar grade fim-antes de calcular variaveis
+write_sf(grade_final2,"D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/grade_intersect/grid_fim.shp")
+
+colnames(grade_final2)
+
+#variáveis
+hex10_grid<-grade_final2%>%
+  mutate(
+numpess= f_moradrs/f_domicls,
+densdom=f_domicls/area_hex,
+prclixo= 1-(f_clixo/f_domicls),
+prcagua= 1-(f_agua/f_domicls),
+prcbanh= (f_sban/f_domicls),#verificar dados se já não é sem banheiros-ok
+prcesgt= 1-(f_redeesg+f_fossa/f_domicls),
+prcrend= (f_sm1_8+f_sm1_4+f_smmeio+f_semrend)/f_domicls,#verificar a inclusão de sem rendimento -ok
+medrend= f_ttlrndm/f_domicls,
+prcesab=(f_V050+f_V052+f_V054)/f_domicls,
+prclixoa= (f_V056+f_V058+f_V060)/f_domicls,
+prcilum= (f_V009+f_V011+f_V013)/f_domicls,
+prccalc= (f_V021+f_V023+f_V025)/f_domicls,
+prcpav= (f_V015+f_V017+f_V019)/f_domicls,
+declivm= decl_media,
+prcapp=p_app,
+pappoc=p_appocup,
+prrisco=p_risco )
+
+
+#salvar grade fim-com variaveis calculadas
+write_sf(hex10_grid,"D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/grade_intersect/grid_final_completo.shp")
+
+  
+```
+

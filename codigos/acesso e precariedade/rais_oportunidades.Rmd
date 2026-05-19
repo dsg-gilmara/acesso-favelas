@@ -1,0 +1,303 @@
+---
+title: "rais"
+output: html_document
+date: "2024-10-16"
+---
+```{r}
+#pacotes
+
+library(sf)
+library(purrr)
+library(data.table)
+library(broom)
+library(tidyverse)
+
+```
+
+#Lendo dados rais -2020 estabelecimentos
+
+```{r}
+#rais
+
+file_path <- "D:/Arquivos/2024/Mestrado/rais/RAIS_ESTAB_PUB.txt.txt"
+
+# Ler o arquivo utilizando fread
+dados <- fread(file_path, sep = ";", header = TRUE, showProgress = TRUE, encoding = "Latin-1")
+
+
+#MUNICIPIOS SELECIONADOS
+codigos_municipios <- c(
+  1100205,
+  1504208,
+  2107506,
+  2111300,
+  2211001,
+  2408102,
+  2412005,
+  2607208,
+  2611606,
+  2704302,
+  2800308,
+  3127701,
+  3302700,
+  3304557,
+  3513801,
+  3529401,
+  3550308,
+  4104204,
+  4202404,
+  4209409,
+  4309209,
+  5003207,
+  3515004,
+  2304400,
+  4106902,
+  3506003,
+  1301209,
+  5212501  )
+
+#colunas com nome únicos
+colnames(dados) <- make.unique(colnames(dados))
+
+#codigos municipios com apenas6 digitos
+# Remover o último dígito de cada código de município
+codigos_municipios_modificados <- as.numeric(substr(codigos_municipios, 1, nchar(codigos_municipios) - 1))
+
+dados_filtrados <- dados %>%
+  filter(Município %in% codigos_municipios_modificados)
+
+#criar id para os dados filtrados
+dados_filtrados <- dados_filtrados %>%
+  mutate(ID = row_number())
+
+# Verificar a adição do ID
+head(dados_filtrados)
+
+
+colnames(dados_filtrados)
+
+#Apenas estabelecimentos com vinculos ativos
+
+dados_filtrados<-dados_filtrados%>%select('ID','Qtd Vínculos Ativos','Município','Tamanho Estabelecimento','UF','IBGE Subsetor','CEP Estab')
+
+vinc_ativos<-dados_filtrados%>%filter(`Qtd Vínculos Ativos`>0)
+
+
+
+write.csv(rais_ativos,"D:/Arquivos/2024/Mestrado/rais/rais_ativos.csv")
+
+rais<-read.csv("D:/Arquivos/2024/Mestrado/rais/rais_ativos.csv")
+
+```
+#geocodificacao dos ceps pelo CNEFE
+```{r}
+
+#Dados CNEFE
+# Geocodificar os CEPs
+
+#MUNICIPIOS SELECIONADOS
+codigos_municipios_CNEFE <- c(
+  "1100205_PORTO_VELHO",
+  "1504208_MARABA",
+  "2107506_PACO_DO_LUMIAR",
+  "2111300_SAO_LUIS",
+  "2211001_TERESINA",
+  "2408102_NATAL",
+  "2412005_SAO_GONCALO_DO_AMARANTE",
+  "2607208_IPOJUCA",
+  "2611606_RECIFE",
+  "2704302_MACEIO",
+  "2800308_ARACAJU",
+  "3127701_GOVERNADOR_VALADARES",
+  "3302700_MARICA",
+  "3304557_RIO_DE_JANEIRO",
+  "3513801_DIADEMA",
+  "3529401_MAUA",
+  "3550308_SAO_PAULO",
+  "4104204_CAMPO_LARGO",
+  "4202404_BLUMENAU",
+  "4209409_LAGUNA",
+  "4309209_GRAVATAI",
+  "5003207_CORUMBA",
+  "3515004_EMBU",
+  "2304400_FORTALEZA",
+  "4106902_CURITIBA",
+  "3506003_BAURU",
+  "1301209_COARI",
+  "5212501_LUZIÂNIA")
+
+ fread(caminho_completo, stringsAsFactors = FALSE, sep = ";", header = TRUE, showProgress = TRUE, encoding = "Latin-1")
+
+# Caminho para a pasta onde estão os arquivos .csv
+caminho_pasta <- "D:/Arquivos/2024/Mestrado/cnefe"
+
+
+# Função para ler os arquivos
+lista_dados <- lapply(codigos_municipios_CNEFE, function(nome_arquivo) {
+  caminho_completo <- file.path(caminho_pasta, paste0(nome_arquivo, ".csv"))
+  read_delim(caminho_completo,delim=";")
+})
+
+# Nomear a lista com os nomes dos arquivos para facilitar a identificação
+names(lista_dados) <- codigos_municipios_CNEFE
+
+
+
+# Função para ler os arquivos, com tratamento de erro
+lista_dados <- lapply(codigos_municipios_CNEFE, function(nome_arquivo) {
+  caminho_completo <- file.path(caminho_pasta, paste0(nome_arquivo, ".csv"))
+  
+  # Verificar se o arquivo existe
+  if (file.exists(caminho_completo)) {
+    # Tentar ler o arquivo
+    tryCatch(
+      read_delim(caminho_completo, delim=";",stringsAsFactors = FALSE),
+      error = function(e) {
+        message(paste("Erro ao ler o arquivo:", nome_arquivo, ":", e$message))
+        return(NULL)
+      }
+    )
+  } else {
+    message(paste("Arquivo não encontrado:", caminho_completo))
+    return(NULL)
+  }
+})
+
+lista_dados <- lapply(lista_dados, function(df) {
+  df[] <- lapply(df, as.character)
+  return(df)
+})
+
+dados_cnefe <- bind_rows(lista_dados)
+
+
+# Função para ler os arquivos, com tratamento de erro
+lista_dados <- lapply(codigos_municipios_CNEFE, function(nome_arquivo) {
+  caminho_completo <- file.path(caminho_pasta, paste0(nome_arquivo, ".csv"))
+  
+  # Verificar se o arquivo existe
+  if (file.exists(caminho_completo)) {
+    # Tentar ler o arquivo com delimitador correto
+    tryCatch(
+      read.csv(caminho_completo, sep = ";", stringsAsFactors = FALSE), # Ajuste delimitador!
+      error = function(e) {
+        message(paste("Erro ao ler o arquivo:", nome_arquivo, ":", e$message))
+        return(NULL)
+      }
+    )
+  } else {
+    message(paste("Arquivo não encontrado:", caminho_completo))
+    return(NULL)
+  }
+})
+
+# Converter todas as colunas para caractere e garantir consistência nas colunas
+lista_dados <- lapply(lista_dados, function(df) {
+  if (!is.null(df)) {
+    df[] <- lapply(df, as.character)
+    return(df)
+  }
+})
+
+# Juntar todos os data frames na lista, ignorando NULOS
+dados_cnefe <- do.call("rbind", lista_dados[!sapply(lista_dados, is.null)])
+
+
+write.csv(dados_cnefe,"D:/Arquivos/2024/Mestrado/rais/dados_cnefe_atual.csv")
+
+#filtrar dados para estabelecimentos (3,4,5,6)
+#1=Domicílio particular
+#2=Domicílio coletivo
+#3=Estabelecimento agropecuário
+#4=Estabelecimento de ensino
+#5=Estabelecimento de saúde
+#6=Estabelecimento de outras finalidades
+#7=Edificação em construção ou reforma
+#8=Estabelecimento religioso
+
+cod_estabelecimentos<-c(3,4,5,6)
+
+
+dados_cnfe_estab <- dados_cnefe %>%
+  filter(COD_ESPECIE %in% cod_estabelecimentos)
+
+write.csv(dados_cnfe_estab,"D:/Arquivos/2024/Mestrado/cnefe/dados_estab_cnefe.csv")
+
+
+
+```
+
+```{r}
+hex10<-st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/grid_org_final.shp")
+
+dados_cnfe_estab<-read.csv("D:/Arquivos/2024/Mestrado/cnefe/dados_estab_cnefe.csv")
+
+cnfe_grid<-st_read("D:/Arquivos/2024/Mestrado/cnefe/cnefe_grid.shp")
+
+
+#Proporção de empregos por CEP - tabela RAIS
+#Calculo -unir pontos CNEFE por tipo de estabelecimento a grade celular , registrando o CEP
+#intersect hex10 e cnefe
+cnefe_sf <- st_as_sf(dados_cnfe_estab, coords = c("LONGITUDE", "LATITUDE"), crs = 4674) #transformando dados cnefe em shp
+cnefe_sf <- st_transform(cnefe_sf, crs = 4326)
+
+cnefe_sf<-cnefe_sf%>%select(COD_UNICO_ENDERECO,COD_MUNICIPIO,COD_SETOR,CEP,COD_ESPECIE,COD_INDICADOR_ESTAB_ENDERECO,geometry)
+
+
+names(cnefe_sf) <- abbreviate(names(cnefe_sf), minlength = 10)
+
+write_sf(cnefe_sf,"D:/Arquivos/2024/Mestrado/cnefe/cnfe_sf2.shp")
+
+#Numero de pontos CNEFE por CEP e tipo de estabelecimento
+
+cnefe_grid <- st_intersection(cnefe_sf, hex10)
+
+#Calculo de número de ceps por tipo na célula
+
+cnefe<-cnfe_grid%>%st_drop_geometry()%>%
+  group_by(`CEP`,id_hex)%>%tally()
+
+
+
+#organizar dados rais para compatibilizar com cnefe
+rais<-rais%>%mutate(
+  tipo_cnefe=case_when(IBGE.Subsetor==25~3,
+                       IBGE.Subsetor==23~4,
+                       IBGE.Subsetor==22~5,
+                       TRUE~6))
+
+rais_total<-rais%>%group_by(CEP.Estab)%>%
+  summarize(vinculos_totais=sum(Qtd.Vínculos.Ativos,na.rm=T))
+
+#Junção CNEFES E RAIS
+
+cnefe$`CEP`<-as.character(cnefe$`CEP`)
+rais_total$CEP.Estab<-as.character(rais_total$CEP.Estab)
+
+resultado_uniao <- rais_total%>%left_join(cnefe, by =c("CEP.Estab"="CEP"))
+
+#soma de pontos cnefe -por cep - encontrar a proporção de estabelecimentos (pontos cnefe) no hexagono, lembrando que os pontos estão georreferenciados, não apenas por CEP;
+
+#soma de pontos cnefe por cep
+resultado_uniao<-resultado_uniao%>%group_by(CEP.Estab)%>%
+  mutate(
+    total_cnefe=sum(n,na.rm=T),
+    prop_cnefe=n/total_cnefe,
+    total_empregos=vinculos_totais*prop_cnefe  )
+
+
+rais_grid<-resultado_uniao%>%group_by(id_hex)%>%
+summarize(rais=sum(total_empregos,na.rm=T))
+
+rais_grid<-na.omit(rais_grid) 
+
+hex<-hex10%>%left_join(rais_grid,by="id_hex")
+
+write_sf(hex,"D:/Arquivos/2024/Mestrado/grid_rais/hex_rais.shp")
+
+
+```
+
+
+
+

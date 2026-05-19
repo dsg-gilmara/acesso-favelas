@@ -1,0 +1,623 @@
+---
+title: "Dados Censo 2010"
+output: 
+  html_document:
+    df_print: paged
+---
+
+# DADOS CENSITÁRIOS
+
+Os dados censitários são resultados do **Censo Demográfico** de 2010, realizado pelo Instituto Brasileiro de Geografia e Estatística (IBGE).
+
+Pacotes necessários
+
+```{r, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+#abrindo as bibliotecas necessárias
+library(data.table)
+library(broom)
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+library(knitr)
+library(DT)
+library(geobr)
+library(sf)
+library(lwgeom)
+
+library(readxl)
+library(cleangeo)
+
+library(dplyr)
+
+#notacao cientifica
+options(scipen=999)
+
+setwd("C:/Users/gilma/OneDrive/Área de Trabalho/2022/Master project/Dados Pesquisa")
+```
+
+# Dados Estatísticos
+
+## Dados censitários
+
+### Dados do Resultados do Universo agregados por setores censitários.
+
+-   Arquivo Básico
+
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+
+#resultados do universo agregados por setores censitarios
+
+#Arquivos basicos UF
+
+#criando lista dos arquivos básico
+basico<- list.files(path="CENSO 2010/Resultados do Universo", patter='Basico', recursive=T,full.names=T)
+basico<- basico[basico %like% '.csv']
+
+#Funcao para ler os arquivos csv do censo 2010
+          leitor_csv<- function(x){
+#Para abrir os arquivos especificar o delimitador, o separador decimal e o encoding -para acentos. Precisei definir como character as colunas para não dar erro
+          resultado<- read_delim(x,delim=";",
+                                  col_types = cols(.default="c"),
+                                 locale=locale(encoding='latin1',
+                                       decimal_mark = ","))
+                                           return(resultado)}
+
+#Abrir e combinar todos os arquivos básico em um unico tibble, seleção das variáveis
+dados_basico<- basico%>%
+  map_df(leitor_csv)%>% 
+  #selecionando variáveis
+   select(Cod_setor,
+          Cod_UF, 
+          `Nome_da_UF `,
+          Cod_municipio, 
+          Nome_do_municipio, 
+          V001,
+          V002)%>%
+  #renomeando
+              rename(domicilios=V001,
+                    moradores=V002)
+
+#conferindo as categorias de cada coluna
+str(dados_basico)
+```
+
+-   Arquivo Domicilio 01
+
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+#Arquivos Domicilio01_UF
+
+#criando lista dos arquivos domicilio01
+domicilio01<- list.files(path="CENSO 2010/Resultados do Universo", patter='Domicilio01', recursive=T,full.names=T)
+domicilio01<- domicilio01[domicilio01 %like% '.csv']
+
+#leitura dos dados
+dados_domicilio01<- domicilio01%>%
+  map_df(leitor_csv)%>% 
+  #selecionando variáveis
+   select(Cod_setor,
+          V012,
+          V017,
+          V018,
+          V023,
+         V035)%>%
+         
+#renomeando
+            rename(clixo=V035,
+                   agua=V012,
+                   sban=V023, 
+                   redeesg=V017,
+                   fossa=V018 )
+
+```
+
+-   Arquivo Pessoa03
+
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+#Arquivos Pessoa03_UF
+
+#criando lista dos arquivos domicilio01
+pessoa03<- list.files(path="CENSO 2010/Resultados do Universo", patter='Pessoa03', recursive=T,full.names=T)
+pessoa03<- pessoa03[pessoa03 %like% '.csv']
+
+#leitura dos dados
+dados_pessoa03<- pessoa03%>%
+  map_df(leitor_csv) %>% 
+  #selecionando variáveis
+   select(Cod_setor,
+          V002,
+          V003,
+          V004,
+          V005,
+          V006)%>%
+  #renomeando
+              rename(branca=V002, 
+                     preta=V003, 
+                     amarela=V004,
+                     parda= V005, 
+                     indigena=V006)
+
+```
+
+-   Arquivo Domicilio Renda
+
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+#Arquivos Domicilio Renda
+
+
+#criando lista dos arquivos domicilio renda
+domrenda<- list.files(path="CENSO 2010/Resultados do Universo", patter='DomicilioRenda', recursive=T,full.names=T)
+domrenda<- domrenda[domrenda %like% '.csv']
+
+#leitura dos dados
+dados_domrenda<- domrenda%>%
+  map_df(leitor_csv) %>% 
+  #selecionando variáveis
+   select(Cod_setor,
+          V002,#Total do rendimento nominal mensal dos domicílios particulares
+          V003,#Total do rendimento nominal mensal dos domicílios particulares permanentes
+          V005,#Domicílios particulares com rendimento nominal mensal domiciliar per capita de até 1/8 salário mínimo
+          V006, #Domicílios particulares com rendimento nominal mensal domiciliar per capita de mais de 1/8 a 1/4 salário mínimo
+          V007, #Domicílios particulares com rendimento nominal mensal domiciliar per capita de mais de 1/4 a 1/2 salário mínimo
+          V008,#Domicílios particulares com rendimento nominal mensal domiciliar per capita de mais de 1/2 a 1 salário mínimo
+          V009,#Domicílios particulares com rendimento nominal mensal domiciliar per capita de mais de 1 a 2 salários mínimos
+          V010,#Domicílios particulares com rendimento nominal mensal domiciliar per capita de mais de 2 a 3 salários mínimos
+          V011,#Domicílios particulares com rendimento nominal mensal domiciliar per capita de mais de 3 a 5 salários mínimos
+          V012,#Domicílios particulares com rendimento nominal mensal domiciliar per capita de mais de 5 a 10 salários mínimos
+          V013,#Domicílios particulares com rendimento nominal mensal domiciliar per capita de mais de 10 salários mínimos
+          V014)%>%#Domicílios particulares sem rendimento nominal mensal domiciliar per capita
+  #renomeando
+              rename(totalrenda= V002, 
+                     totalrendimento=V003, 
+                     sm1_8=V005, 
+                     sm1_4=V006,
+                     smmeio=V007, 
+                     smmeio_1=V008, 
+                     sm1_2= V009, 
+                     sm2_3=V010, 
+                     sm3_5= V011, 
+                     sm5_10= V012, 
+                     sm_10=V013, 
+                     semrenda= V014)
+
+
+```
+
+-   Arquivo Entorno 01
+
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+#Arquivos Entorno 01
+
+#criando lista dos arquivos entorno01
+entorno01<- list.files(path="CENSO 2010/Resultados do Universo", patter='Entorno01', recursive=T,full.names=T)
+entorno01<- entorno01[entorno01 %like% '.csv']
+
+
+#leitura dos dados
+dados_entorno01<- entorno01%>%
+  map_df(leitor_csv) %>% 
+  #selecionando variáveis
+   select(Cod_setor,
+          V008,#Domicílios particulares permanentes próprios – Existe iluminação pública
+          V009,#Domicílios particulares permanentes próprios – Não existe iluminação pública
+          V010,#Domicílios particulares permanentes alugados – Existe iluminação pública
+          V011,#Domicílios particulares permanentes alugados – Não existe iluminação pública
+          V012,#Domicílios particulares permanentes cedidos – Existe iluminação pública
+          V013,#Domicílios particulares permanentes cedidos – Não existe iluminação pública
+          V014,#Domicílios particulares permanentes próprios – Existe pavimentação
+          V015,#Domicílios particulares permanentes próprios – Não existe pavimentação
+          V016,#Domicílios particulares permanentes alugados – Existe pavimentação
+          V017,#Domicílios particulares permanentes alugados – Não existe pavimentação
+          V018,#Domicílios particulares permanentes cedidos – Existe pavimentação
+          V019,#Domicílios particulares permanentes cedidos – Não existe pavimentação
+          V020,#Domicílios particulares permanentes próprios – Existe calçada
+          V021,#Domicílios particulares permanentes próprios – Não existe calçada
+          V022,#Domicílios particulares permanentes alugados – Existe calçada
+          V023,#Domicílios particulares permanentes alugados – Não existe calçada
+          V024,#Domicílios particulares permanentes cedidos – Existe calçada
+          V025,#Domicílios particulares permanentes cedidos – Não existe calçada
+          V050,#Domicílios particulares permanentes próprios – Existe esgoto a céu aberto
+          V051,#Domicílios particulares permanentes próprios – Não existe esgoto a céu aberto
+          V052,#Domicílios particulares permanentes alugados – Existe esgoto a céu aberto
+          V053,#Domicílios particulares permanentes alugados – Não existe esgoto a céu aberto
+          V054,#Domicílios particulares permanentes cedidos – Existe esgoto a céu aberto
+          V055,#Domicílios particulares permanentes cedidos – Não existe esgoto a céu aberto
+          V056,#Domicílios particulares permanentes próprios – Existe lixo acumulado nos logradouros
+          V057,#Domicílios particulares permanentes próprios – Não existe lixo acumulado nos logradouros
+          V058,#Domicílios particulares permanentes alugados – Existe lixo acumulado nos logradouros
+          V059,#Domicílios particulares permanentes alugados – Não existe lixo acumulado nos logradouros
+          V060,#Domicílios particulares permanentes cedidos – Existe lixo acumulado nos logradouros
+          V061)#Domicílios particulares permanentes cedidos – Não existe lixo acumulado nos logradouros
+  
+  
+
+```
+- Responsavel Renda
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+#Arquivos Responsavel Renda
+
+#criando lista dos arquivos Responsavel Renda
+resprenda<- list.files(path="CENSO 2010/Resultados do Universo", patter='ResponsavelRenda', recursive=T,full.names=T)
+resprenda<- resprenda[resprenda %like% '.csv']
+
+#leitura dos dados
+dados_resprenda<- resprenda%>%
+  map_df(leitor_csv)%>% 
+  #selecionando variáveis
+   select(Cod_setor,
+          V022,
+          V020)%>%
+        #renomeando
+            rename(pesrenda=V022,#Total do rendimento nominal mensal das pessoas responsáveis
+                   pessresp=V020) #Total de pessoas responsáveis
+
+```
+
+
+
+
+     
+* União das informações em uma tabela
+
+
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+#Juntando as tabelas em apenas uma
+
+censo_2010_dados<- dados_basico%>% left_join(dados_domicilio01, by="Cod_setor")%>%
+  left_join(dados_domrenda, by="Cod_setor")%>%
+    left_join(dados_pessoa03, by="Cod_setor")%>%
+    left_join(dados_entorno01, by="Cod_setor")%>%
+  left_join(dados_resprenda, by="Cod_setor")
+```
+
+### Correções finais no arquivo
+
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+
+
+#Correcoes do arquivo
+
+#substituindo X por NA
+censo_2010_dados[censo_2010_dados=="X"]<-NA
+
+
+#conversao coluna character as numeric
+censo_2010_numeric<- censo_2010_dados%>%select(-Cod_UF,
+                                               -Cod_municipio, 
+                                               -`Nome_da_UF `,
+                                               -Nome_do_municipio)%>%
+                                                      lapply(as.numeric)%>%
+                                                             data.frame()%>%
+  #Para conseguir unir com os dados de string, mantendo os codigos como character
+                                                                mutate(Cod_setor=as.character(Cod_setor))
+str(censo_2010_numeric)
+
+
+
+#Unindo tabelas novamente
+censo_2010_dados<-censo_2010_dados%>%select(Cod_setor,
+                                            Cod_UF,
+                                            Cod_municipio, 
+                                            `Nome_da_UF `,
+                                            Nome_do_municipio)%>%
+  left_join(censo_2010_numeric, by="Cod_setor")
+
+write.csv(censo_2010_dados,"D:/Arquivos/2024/Mestrado/projeto_gilmara/Novembro/Dados Censitarios/censo_2010_setores.csv")
+
+
+ 
+#abrindo arquivo shp dos setores dos municipios selecionados
+
+list_geobr()
+
+
+setores_br<-read_census_tract(code_tract = "all",year=2010,simplified = F,showProgress = T)
+
+setores<-st_read("outputs2024/setores_censo_corrigido_wgs84.shp")
+
+censo_2010<-setores_br%>%  left_join(censo_2010_dados, by=c("code_tract"="Cod_setor"))
+colSums(is.na(censo_2010))
+
+
+censo_2010<-censo_2010%>%
+  distinct(code_tract, .keep_all = TRUE)
+
+write_sf(censo_2010,"D:/Arquivos/2024/Mestrado/projeto_gilmara/Novembro/Dados Censitarios/setores_2010_br.shp")
+#teste geobr2022
+#setores2022<-read_census_tract(code_tract = "all", year=2022)
+#write_sf(setores2022,"D:/Arquivos/2024/Mestrado/projeto_gilmara/Novembro/Dados Censitarios/setores_2022_br.shp")
+```
+
+
+### Dados Censo 2022
+```{r}
+#abrir tabelas
+#Arquivo básico
+basico_2022<-read.csv2("D:/Arquivos/2024/Mestrado/projeto_gilmara/Novembro/Dados Censitarios/censo2022_originais/RU_112024/Agregados_por_setores_basico_BR.csv")%>%
+  select(CD_SETOR,SITUACAO,CD_SIT,CD_TIPO,AREA_KM2,CD_MUN,v0001,v0005)%>%
+  rename(pessoas=v0001,
+         med_moradores=v0005)
+#Arquivo domicilios parte01
+dompt1_2022<-read.csv2("D:/Arquivos/2024/Mestrado/projeto_gilmara/Novembro/Dados Censitarios/censo2022_originais/RU_112024/Agregados_por_setores_caracteristicas_domicilio1_BR.csv")%>%
+  select(CD_setor,V00001,V00002,V00050)%>%
+  rename(dppo=V00001,#Domicílios Particulares Permanentes Ocupados
+         dpio=V00002,#Domicílios Particulares Improvisados Ocupados
+         cortico=V00050)##Domicílios Particulares Permanentes Ocupados, Tipo de espécie é habitação em casa de cômodos ou cortiço  
+
+#Arquivo domicilios parte02
+
+dompt2_2022<-read.csv2("D:/Arquivos/2024/Mestrado/projeto_gilmara/Novembro/Dados Censitarios/censo2022_originais/RU_112024/Agregados_por_setores_caracteristicas_domicilio2_BR.csv")%>%  select(CD_setor,V00397,V00111,V00238,V00309,V00310,V00201)%>%
+  rename(lixo=V00397,#Domicílios Particulares Permanentes Ocupados, Lixo coletado no domicílio por serviço de limpeza
+         agua=V00111,#Domicílios Particulares Permanentes Ocupados, Utiliza rede geral de distribuição
+         sanitario=V00238,#Domicílios Particulares Permanentes Ocupados, Não tinham banheiro nem sanitário
+         esgoto=V00309,#Domicílios Particulares Permanentes Ocupados, Destinação do esgoto do banheiro ou sanitário ou buraco para dejeções é rede geral ou pluvial
+         fossa=V00310,#Domicílios Particulares Permanentes Ocupados, Destinação do esgoto do banheiro ou sanitário ou buraco para dejeções é fossa séptica ou fossa filtro ligada à rede
+         encanada=V00201)#Domicílios Particulares Permanentes Ocupados, Água não chega encanada ao domicílio
+  
+#Arquivo Cor ou raça
+
+corraca_2022<-read.csv2("D:/Arquivos/2024/Mestrado/projeto_gilmara/Novembro/Dados Censitarios/censo2022_originais/RU_112024/Agregados_por_setores_cor_ou_raca_BR.csv")%>%  select(CD_SETOR,V01317,V01318,V01319,V01320,V01321)%>%
+rename(branca=V01317,
+preta=V01318,
+amarela=V01319,
+parda=V01320,
+indigena=V01321)
+
+#AREA EFETIVAMENTE DOMICILIADA
+AED_2022<-read.csv2("D:/Arquivos/2024/Mestrado/projeto_gilmara/Novembro/Dados Censitarios/censo2022_originais/dados_censo2022_aed.csv")%>%
+  select(CD_SETOR,AREA_DOMICILIADA_KM2,DENSIDADE_DEMOGRAFICA_DOMICILIADA_HAB_KM2)
+
+
+#JUNÇÃO TODAS
+censo2022<-basico_2022%>%left_join(dompt1_2022,by=c("CD_SETOR"="CD_setor"))%>%
+  left_join(dompt2_2022,by=c("CD_SETOR"="CD_setor"))%>%
+  left_join(corraca_2022,by="CD_SETOR")%>%
+  left_join(AED_2022,by="CD_SETOR")
+  
+
+#Correcoes do arquivo
+
+#substituindo X por NA
+censo2022[censo2022=="X"]<-NA
+
+
+#conversao coluna character as numeric
+censo_2022_numeric<- censo2022%>%select(-SITUACAO)%>%
+                                 lapply(as.numeric)%>%
+                                 data.frame()%>%
+  #Para conseguir unir com os dados de string, mantendo os codigos como character
+                                 mutate(CD_SETOR=as.character(CD_SETOR))
+
+censo2022$CD_SETOR<-as.character(censo2022$CD_SETOR)
+
+#Unindo tabelas novamente
+censo_2022_dados<-censo2022%>%select(CD_SETOR,
+                                     SITUACAO)%>%
+  left_join(censo_2022_numeric, by="CD_SETOR")
+
+
+
+write.csv(censo_2022_dados,"D:/Arquivos/2024/Mestrado/projeto_gilmara/Novembro/Dados Censitarios/censo_2022_setores.csv")
+
+
+ 
+#abrindo arquivo shp dos setores dos municipios selecionados
+
+setores2022<-st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/Novembro/Dados Censitarios/censo2022_originais/BR_setores_CD2022.shp")
+
+censo_2022<-setores2022%>%  left_join(censo_2022_dados, by="CD_SETOR")
+
+colSums(is.na(censo_2022))
+
+
+censo_2022<-censo_2022%>%
+  distinct(CD_SETOR, .keep_all = TRUE)
+
+write_sf(censo_2022,"D:/Arquivos/2024/Mestrado/projeto_gilmara/Novembro/Dados Censitarios/setores_2022_br.shp")
+
+```
+
+
+
+
+
+
+
+---------------------------------------------------------------------------------------
+# Variáveis por municipios
+
+```{r}
+#calculos abaixo realizados para analises por municipio!
+ censo_2010_dados<-censo_2010_dados%>% 
+    mutate(
+    temilum=(V008+V010+V012),
+      semilum=(V009+V011+V013),
+      tempav=(V014+V016+V018),
+      sempav=(V015+V017+V019),
+      temcal=(V020+V022+V024),
+    semcal=(V021+V023+V025),
+    esgotoceu=(V050+V052+V054),
+    semesgotoceu=(V051+V053+V055),
+      temlixo=(V056+V058+V060),
+      semlixo=(V057+V059+V061))%>%
+    select(-V008,#Domicílios particulares permanentes próprios – Existe iluminação pública
+          -V009,#Domicílios particulares permanentes próprios – Não existe iluminação pública
+          -V010,#Domicílios particulares permanentes alugados – Existe iluminação pública
+         -V011,#Domicílios particulares permanentes alugados – Não existe iluminação pública
+         -V012,#Domicílios particulares permanentes cedidos – Existe iluminação pública
+          -V013,#Domicílios particulares permanentes cedidos – Não existe iluminação pública
+          -V014,#Domicílios particulares permanentes próprios – Existe pavimentação
+          -V015,#Domicílios particulares permanentes próprios – Não existe pavimentação
+          -V016,#Domicílios particulares permanentes alugados – Existe pavimentação
+          -V017,#Domicílios particulares permanentes alugados – Não existe pavimentação
+          -V018,#Domicílios particulares permanentes cedidos – Existe pavimentação
+          -V019,#Domicílios particulares permanentes cedidos – Não existe pavimentação
+          -V020,#Domicílios particulares permanentes próprios – Existe calçada
+          -V021,#Domicílios particulares permanentes próprios – Não existe calçada
+          -V022,#Domicílios particulares permanentes alugados – Existe calçada
+          -V023,#Domicílios particulares permanentes alugados – Não existe calçada
+          -V024,#Domicílios particulares permanentes cedidos – Existe calçada
+          -V025,#Domicílios particulares permanentes cedidos – Não existe calçada
+          -V050,#Domicílios particulares permanentes próprios – Existe esgoto a céu aberto
+          -V051,#Domicílios particulares permanentes próprios – Não existe esgoto a céu aberto
+          -V052,#Domicílios particulares permanentes alugados – Existe esgoto a céu aberto
+          -V053,#Domicílios particulares permanentes alugados – Não existe esgoto a céu aberto
+          -V054,#Domicílios particulares permanentes cedidos – Existe esgoto a céu aberto
+          -V055,#Domicílios particulares permanentes cedidos – Não existe esgoto a céu aberto
+          -V056,#Domicílios particulares permanentes próprios – Existe lixo acumulado nos logradouros
+          -V057,#Domicílios particulares permanentes próprios – Não existe lixo acumulado nos logradouros
+          -V058,#Domicílios particulares permanentes alugados – Existe lixo acumulado nos logradouros
+          -V059,#Domicílios particulares permanentes alugados – Não existe lixo acumulado nos logradouros
+          -V060,#Domicílios particulares permanentes cedidos – Existe lixo acumulado nos logradouros
+          -V061)
+
+#%>%  select(Cod_setor,temilum,semilum,tempav,sempav, temcal,semcal,esgotoceu,semesgotoceu,temlixo,semlixo)
+
+
+str(censo_2010_dados)
+# salva o CSV
+write.csv(censo_2010_dados,"outputs2024/censo_2010_dados.csv") 
+
+```
+
+
+Até aqui temos os dados brutos do censo 2010 por setores censitários, os próximos passos serão para construção das variáveis por município e por porcentagens de população e domicílios;
+
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+#salvando dados por setor censitário
+write.csv(censo_2010_dados,"CENSO 2010/censo_2010_sc.csv")
+
+
+#dados por município
+#Observações com dados faltantes- NA 
+sum(is.na(censo_2010_dados$sban))
+
+#Excluindo observações com dados faltantes- NA 
+censo_2010_munic<-na.omit(censo_2010_dados)%>%
+  group_by(Cod_municipio)%>%
+  summarize(across(where(is.numeric),sum))
+
+#Adicionando informações de character a tabela
+censo_2010_text<-censo_2010_dados%>%select(Cod_UF,
+                                            Cod_municipio, 
+                                            `Nome_da_UF `,
+                                            Nome_do_municipio)%>%
+  group_by(Cod_municipio, Nome_do_municipio, Cod_UF,`Nome_da_UF `)%>%
+  tally()
+  
+
+censo_2010_munic<- censo_2010_munic%>%left_join(censo_2010_text,by="Cod_municipio")%>%
+  #removendo o tally da tabela de texto
+  select(-n)
+
+# salva o CSV
+write.csv(censo_2010_munic,"CENSO 2010/censo_2010_munic.csv") 
+ 
+```
+
+### Processamento das variáveis censitárias por município
+
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+
+#resultados do universo agregados por setores censitarios
+
+#Abrir arquivo csv
+censo_2010_munic<-read_csv("CENSO 2010/censo_2010_munic.csv", locale=locale(encoding='latin1'))
+
+## Processamento
+#Arquivos basicos UF
+censo_2010_m_p<- censo_2010_munic%>%mutate(porc_sban=sban/domicilios,
+                                           porc_lixocoleta= lixocoleta/domicilios,
+                                           porc_branca=branca/moradores,
+                                           porc_negra=(preta+parda)/moradores,
+                                           porc_amarela= amarela/moradores,
+                                           porc_indigena=indigena/moradores,
+                                           renda_média= totalrenda/domicilios,
+                                           porc_atemeio_sm= (sm1_8+sm1_4+smmeio)/domicilios,
+                                           porc_ate3_sm=(sm1_8+sm1_4+smmeio+smmeio_1+sm1_2+sm2_3)/domicilios,
+                                           por_semrenda= semrenda/domicilios)
+                                       
+
+```
+
+## Dados do Resultado da Amostra
+
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+#Dados do resultado da amostra
+
+dados_amostra<-read_delim("CENSO 2010/Resultados da Amostra/tabela3422.csv",
+                          delim=";",
+                          skip=4,
+                               locale=locale(encoding='UTF-8',
+                                       decimal_mark = ","))%>%
+  mutate(Cod_municipio=Cód.)
+
+str(dados_amostra)
+#Correcoes do arquivo
+
+#substituindo - por NA
+dados_amostra[dados_amostra=="-"]<-"0"
+
+
+#conversao coluna character as numeric
+dados_amostra<- dados_amostra%>%
+  #Conversão de dados das colunas lidas como character
+  mutate(`Mais de uma hora até duas horas`=as.numeric(`Mais de uma hora até duas horas`),
+     `Mais de duas horas`=as.numeric(`Mais de duas horas`),
+     Cod_municipio=as.numeric(Cod_municipio))
+
+str(dados_amostra)
+
+```
+
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+
+#Unindo as infos
+
+censo_2010_m_p<- censo_2010_m_p%>% left_join(dados_amostra, by="Cod_municipio")
+
+colnames(censo_2010_m_p)
+censo_2010_m_p<- censo_2010_m_p %>% mutate(porc_5min= `Até cinco minutos`/Total,
+                                           porc_ate_30min=(`Até cinco minutos`+`De seis minutos até meia hora`)/Total,
+                                           porc_30min_1h=`Mais de meia hora até uma hora`/Total,
+                                           porc_1h_2h= `Mais de uma hora até duas horas`/Total,
+                                           porc_mais1h= (`Mais de uma hora até duas horas`+`Mais de duas horas`)/Total,
+                                           porc_mais2h= `Mais de duas horas`/Total)
+
+# salva o CSV
+write.csv(censo_2010_m_p,"CENSO 2010/censo_2010_munic_proc.csv")
+```
+
+## Seleção das variáveis importantes que irei utilizar\_
+
+```{r,error=FALSE, warning=FALSE, message=FALSE}
+
+dados_municipios<- censo_2010_m_p%>% select(Cod_UF,
+                                            Nome_da_UF,
+                                            Cod_municipio,
+                                            Nome_do_municipio,
+                                            domicilios,
+                                            moradores,
+                                            porc_sban,
+                                            porc_lixocoleta,
+                                            porc_branca,
+                                            porc_negra,
+                                            porc_amarela,
+                                            porc_indigena,
+                                            renda_média,
+                                            porc_atemeio_sm,
+                                            porc_ate3_sm,
+                                            por_semrenda,
+                                            porc_semilum,
+                                            porc_sempav,
+                                            porc_semcalc,
+                                            porc_esgotoceu,
+                                            porc_5min,
+                                            porc_ate_30min,
+                                            porc_30min_1h,
+                                            porc_1h_2h,
+                                            porc_mais2h,
+                                            porc_mais1h)
+# salva o CSV
+write.csv(dados_municipios,"outputs/censo_municipios.csv")
+
+```

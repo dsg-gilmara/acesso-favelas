@@ -1,0 +1,559 @@
+---
+title: "Analise_acessibilidade"
+output: html_document
+date: "2025-04-24"
+---
+
+
+```{r}
+
+
+#abrindo as bibliotecas necessárias
+library(data.table)
+library(broom)
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+library(knitr)
+library(DT)
+library(readxl)
+library(cleangeo)
+library(corrplot)
+library(duckspatial)
+library(dplyr)
+library(Rtsne) #plot do pam
+
+#pacotes de mapa
+library(geobr) 
+library(plotly)
+library(tmap)
+library(spData)
+library(leaflet)
+library(sf)
+library(lwgeom)
+library(car)
+library(purrr)
+
+library(gridExtra)
+library(tidygraph)
+library(sfnetworks)
+
+
+
+library(r5r)
+
+cat(processx::run("java", args = "-version")$stderr)
+
+#notacao cientifica
+options(scipen=999)
+setwd("C:/Users/gilma/OneDrive/Área de Trabalho/2022/Master project/Dados Pesquisa")
+
+
+```
+
+
+
+#dados escolas e saude
+```{r}
+
+
+#abrir escolas 
+schools<-read_schools(year = 2020, showProgress = TRUE, cache = TRUE)
+
+school_public<-schools%>%filter(admin_category=='Pública')
+
+
+#abrir equipamentos saúde
+
+health<-st_read("C:/Users/gilma/OneDrive/Área de Trabalho/2022/Master project/Dados Pesquisa/Dados SUS/UBS_CNES2022.shp")
+
+```
+
+
+```{r}
+#abrir grade
+
+grade_2022<-st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/Novembro/integracao_grade/grid_2022.gpkg")
+hex<-grade_2022
+
+#contagem equipamentos de saúde e escolas
+
+
+school_public <- st_transform(school_public, st_crs(hex))
+health <- st_transform(health, st_crs(hex))
+
+# Associar escolas a hexágonos
+schools_joined <- st_join(school_public, hex, join = st_within)
+
+# Contar escolas por hexágono
+schools_count <- schools_joined %>%
+  st_drop_geometry() %>%
+  count(id_hex, name = "n_schools")
+
+
+# Associar saúde a hexágonos
+health_joined <- st_join(health, hex, join = st_within)
+
+# Contar equipamentos de saúde por hexágono
+health_count <- health_joined %>%
+  st_drop_geometry() %>%
+  count(id_hex, name = "n_health")
+
+
+
+grid_2025 <- hex%>%
+  left_join(schools_count, by = "id_hex") %>%
+  left_join(health_count, by = "id_hex") %>%
+  mutate(
+    n_schools = replace_na(n_schools, 0),
+    n_health = replace_na(n_health, 0)
+  )
+
+
+                                    
+#salvar grade interseccionada intermediária
+write_sf(grid_2025,"D:/Arquivos/2024/Mestrado/projeto_gilmara/grade_2025_june.gpkg")
+
+
+
+#salvar como arquivos de pontos
+
+# 2. Garantir que o CRS seja WGS84 (lat/lon). 
+#    Se já for EPSG:4326, a função apenas devolve o objeto inalterado.
+grid_2025 <- st_transform(grid_2025, 4326)
+
+# 3. Calcular centróides
+hex_centroid <- st_centroid(grid_2025)
+
+# 4. Extrair coordenadas dos centróides
+coords <- st_coordinates(hex_centroid)        # matriz com X = lon, Y = lat
+
+# 5. Combinar coordenadas e atributos
+tabela_centroides <- hex_centroid |>
+  st_drop_geometry() |>                       # remove a coluna geom
+  bind_cols(
+    lon = coords[, "X"],
+    lat = coords[, "Y"]
+  )
+
+# 6. (Opcional) manter apenas as colunas que interessam
+# tabela_centroides <- tabela_centroides |> select(id_hex, lon, lat, municipio, tudo que precisar)
+
+# 7. Exportar para CSV
+write.csv(tabela_centroides,"D:/Arquivos/2024/Mestrado/projeto_gilmara/cent_hex.csv",
+          row.names = FALSE,
+          fileEncoding = "UTF-8")
+
+
+
+grade_2025<-st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/grade_2025_june.gpkg")
+
+cent_hex<- read_csv("D:/Arquivos/2024/Mestrado/projeto_gilmara/cent_hex.csv")
+```
+
+```{r}
+#salvar os tif do modelo digital de elevação
+
+library(geobr)
+library(elevatr)
+library(sf)
+library(terra)   
+library(dplyr)
+library(progress)
+
+
+# Lista de códigos dos municípios
+codigos <- c(
+  1100205, 1504208, 2107506, 2111300, 2211001, 2408102,
+  2412005, 2607208, 2611606, 2704302, 2800308, 3127701, 3302700,
+  3304557, 3513801, 3529401, 3550308, 4104204, 4202404, 4209409,
+  4309209, 5003207, 1301209,5212501, 3515004, 2304400, 4106902)
+
+codigos<- c(1301209,5212501)
+
+
+# Criar pasta para salvar arquivos
+dir.create("elevacao_tiffs", showWarnings = FALSE)
+
+# Criar barra de progresso
+pb <- progress_bar$new(
+  total = length(codigos),
+  format = "Baixando MDE [:bar] :current/:total (:percent) em :elapsed"
+)
+
+# Loop com barra de progresso
+for (codigo in codigos) {
+  pb$tick()
+  
+  # Baixar limite municipal
+  mun <- tryCatch({
+    read_municipality(code_muni = codigo, year = 2020) %>%
+      st_transform(4326)
+  }, error = function(e) NULL)
+  
+  if (!is.null(mun)) {
+    # Baixar elevação
+    elev <- tryCatch({
+      get_elev_raster(locations = mun, z = 10, clip = "locations")
+    }, error = function(e) NULL)
+    
+    if (!is.null(elev)) {
+      elev <- rast(elev)
+      nome_arquivo <- paste0("elevacao_tiffs/MDE_", codigo, ".tif")
+      writeRaster(elev, nome_arquivo, overwrite = TRUE)
+    }
+  }
+}
+
+
+```
+
+
+```{r}
+# ================================================================
+# Extração em batch de .osm.pbf municipais a partir dos regionais
+# Versão simples, baseada no código que funcionou para Bauru
+# ================================================================
+
+# 1. Carregue as bibliotecas
+library(geobr)  # para read_municipality, read_state
+library(sf)     # para st_bbox
+
+# 2. Caminho para o executável osmium
+osmium <- Sys.which("osmium")
+if (osmium == "") {
+  osmium <- "C:/OSGeo4W/bin/osmium.exe"  # ajuste se necessário
+}
+
+# 3. Seus códigos IBGE
+#codes <-  c(
+#  1100205, 1504208, 1505304, 2107506, 2111300, 2211001, 2408102,
+ # 2412005, 2607208, 2611606, 2704302, 2800308, 3127701, 3302700,
+  #3304557, 3513801, 3529401, 3550308, 4104204, 4202404, 4209409,
+  #4309209, 5003207, 5215603, 3515004, 2304400, 4106902, 3506003)
+
+codes<- c(5215603)
+
+# 4. Pastas de entrada e saída
+regions_dir <- "D:/Arquivos/2024/Mestrado/projeto_gilmara/data/osm/regions"  
+out_dir     <- "D:/Arquivos/2024/Mestrado/projeto_gilmara/data/osm/municipalities"
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+# 5. Carregue a tabela de regiões dos estados uma única vez
+states   <- read_state(year = 2020, simplified = FALSE)
+reg_map  <- setNames(tolower(gsub("\\s+","-", states$name_region)),
+                     states$abbrev_state)
+
+# 6. Loop simples
+for (code in codes) {
+  # 6.1 geometria do município
+  muni <- read_municipality(code, year = 2020, simplified = FALSE)
+  bb   <- st_bbox(muni)
+  
+  # 6.2 derive o arquivo PBF regional
+  region <- reg_map[ muni$abbrev_state[1] ]         # ex: "sudeste"
+  in_pbf <- list.files(
+    regions_dir,
+    pattern    = paste0(region, "-latest\\.osm\\.pbf$"),
+    full.names = TRUE,
+    ignore.case= TRUE
+  )
+  if (length(in_pbf) != 1) {
+    warning("PBF regional para ", region, " não encontrado ou ambíguo."); next
+  }
+  
+  # 6.3 prepare arquivo de saída
+  out_pbf <- file.path(out_dir, paste0(code, ".osm.pbf"))
+  if (file.exists(out_pbf)) {
+    message(code, " já existe, pulando."); next
+  }
+  
+  # 6.4 comando osmium extract
+  cmd <- sprintf(
+    '%s extract --bbox %f,%f,%f,%f -o "%s" "%s"',
+    osmium,
+    bb["xmin"], bb["ymin"], bb["xmax"], bb["ymax"],
+    out_pbf, in_pbf
+  )
+  message("Extraindo município ", code, " (", muni$name_muni[1], ")...")
+  system(cmd)
+}
+
+message("🎉 Processo finalizado. Verifique os .osm.pbf em:\n", out_dir)
+
+
+
+```
+
+
+
+----AQUI É O CALCULO DE ACESSIBILIDADE-------
+
+
+
+#CODIGO ADAPTADO PARA TODOS
+
+
+#calculo acesso
+```{r}
+# Pacotes ---------------------------------------------------------------------
+library(readr)
+library(dplyr)
+library(sf)
+library(rlang)
+library(accessibility)
+library(tidyr)
+
+# Entradas --------------------------------------------------------------------
+codigos <- c(1100205, 1504208, 2107506, 2111300, 2211001, 2408102,
+  2412005, 2607208, 2611606, 2704302, 2800308, 3127701, 3302700,
+  3304557, 3513801, 3529401, 3550308, 4104204, 4202404, 4209409,
+  4309209, 5003207, 1301209, 5212501, 3515004, 2304400, 41069020)
+
+ttm_dir  <- "D:/Arquivos/2024/Mestrado/projeto_gilmara/results"
+grid_csv <- "D:/Arquivos/2024/Mestrado/projeto_gilmara/cent_hex.csv"
+out_dir  <- "D:/Arquivos/2024/Mestrado/projeto_gilmara/results"
+
+# Config do indicador T% (tempo para alcançar p% dos empregos do município)
+target_share <- 0.50
+base_cutoffs <- c(15, 30, 45, 60)
+step_cutoff  <- 15
+max_cutoff   <- 180
+
+# Leitura única da grade com oportunidades ------------------------------------
+grid_all <- read_csv(grid_csv, show_col_types = FALSE)
+
+# Funções ---------------------------------------------------------------------
+
+# Padroniza colunas da travel matrix
+prep_ttm <- function(df) {
+  df |>
+    rename(
+      from_id     = tidyselect::matches("origin|from",  ignore.case = TRUE),
+      to_id       = tidyselect::matches("dest|to",      ignore.case = TRUE),
+      travel_time = tidyselect::matches("travel.*time", ignore.case = TRUE)
+    ) |>
+    transmute(
+      from_id = as.character(from_id),
+      to_id   = as.character(to_id),
+      travel_time = as.numeric(travel_time)
+    )
+}
+
+# Calcula acessibilidade acumulativa para 1 cutoff e devolve (id, acc)
+calc_acc_one <- function(ttm_raw, grid_sf, opp_col, cutoff) {
+
+  df <- cumulative_cutoff(
+    travel_matrix = prep_ttm(ttm_raw),
+    land_use_data = st_drop_geometry(grid_sf) |>
+      select(id, !!sym(opp_col)),
+    opportunity   = opp_col,
+    travel_cost   = "travel_time",
+    cutoff        = cutoff
+  )
+
+  acc_col <- setdiff(names(df), "id")[1]
+  df |>
+    rename(acc = !!sym(acc_col)) |>
+    transmute(id = as.character(id), acc = as.numeric(acc))
+}
+
+# Calcula acessibilidade para vários cutoffs e devolve largo (id + colunas acc_*)
+calc_acc_wide <- function(ttm_raw, grid_sf, opp_col, cutoffs, mode_tag) {
+  out <- NULL
+  for (co in cutoffs) {
+    message("Calculando ", mode_tag, " · ", opp_col, " · ", co, " min")
+    df <- calc_acc_one(ttm_raw, grid_sf, opp_col, cutoff = co) |>
+      rename(!!paste0("acc_", opp_col, "_", mode_tag, "_", co, "m") := acc)
+    out <- if (is.null(out)) df else left_join(out, df, by = "id")
+  }
+  out
+}
+
+# Cria sequência estendida de cutoffs até max_cutoff
+extend_cutoffs <- function(current, max_cutoff = 180, step = 15) {
+  current <- sort(unique(current))
+  if (max(current) >= max_cutoff) return(current)
+  add <- seq(max(current) + step, max_cutoff, by = step)
+  sort(unique(c(current, add)))
+}
+
+# Dado results com colunas de acc em vários cutoffs, calcula T_p por origem (id)
+infer_t_share <- function(results_df, opp_total, mode_tag, opp_col, p, cutoffs) {
+  target <- p * opp_total
+  cols <- paste0("acc_", opp_col, "_", mode_tag, "_", cutoffs, "m")
+
+  m <- as.matrix(results_df[, cols, drop = FALSE])
+  hit <- m >= target
+
+  first_idx <- apply(hit, 1, function(x) {
+    if (any(x, na.rm = TRUE)) which(x)[1] else NA_integer_
+  })
+
+  ifelse(is.na(first_idx), NA_real_, cutoffs[first_idx])
+}
+
+# Resumo municipal a partir dos hexágonos
+summarize_city_from_hex <- function(df_hex, t_col, weight_col = NULL) {
+  x <- df_hex[[t_col]]
+
+  if (!is.null(weight_col) && weight_col %in% names(df_hex)) {
+    w <- df_hex[[weight_col]]
+    ok <- !is.na(x) & !is.na(w) & w > 0
+
+    wmean <- if (any(ok)) stats::weighted.mean(x[ok], w[ok]) else NA_real_
+
+    # quantis ponderados simples via replicação não é viável, então usa não ponderado por padrão
+    # se você quiser quantil ponderado depois, dá para usar Hmisc::wtd.quantile
+  } else {
+    wmean <- NA_real_
+  }
+
+  tibble(
+    n_hex = nrow(df_hex),
+    share_censored = mean(is.na(x)),
+    t_mean = mean(x, na.rm = TRUE),
+    t_median = stats::median(x, na.rm = TRUE),
+    t_p90 = as.numeric(stats::quantile(x, 0.90, na.rm = TRUE, type = 7)),
+    t_p95 = as.numeric(stats::quantile(x, 0.95, na.rm = TRUE, type = 7)),
+    t_wmean = wmean
+  )
+}
+
+# Loop principal ----------------------------------------------------------------
+# Vai salvar:
+# 1) GeoPackage e CSV por município com as colunas de acessibilidade e T50
+# 2) Um CSV resumo com métricas por município (por modo)
+
+summary_all <- list()
+
+for (code in codigos) {
+  message("\n====================================================")
+  message("Processando município: ", code)
+
+  # 1) Grade hexagonal do município
+  grid_sf <- grid_all |>
+    filter(code_mn.x == as.integer(code)) |>
+    rename(id = id_hex) |>
+    mutate(id = as.character(id)) |>
+    st_as_sf(coords = c("lon", "lat"), crs = 4326)
+
+  stopifnot("rais" %in% names(grid_sf))
+
+  # Total municipal de empregos (no universo dos hexágonos do seu recorte)
+  opp_col <- "rais"
+  opp_total <- sum(st_drop_geometry(grid_sf)[[opp_col]], na.rm = TRUE)
+
+  # 2) Matrizes de tempo
+  # Ajuste aqui se você quiser somente walk
+  ttm_list <- list(
+    walk = read_csv(file.path(ttm_dir, paste0(code, "_walk.csv")), show_col_types = FALSE)
+  )
+
+  # 3) Inicializa results com geometria
+  results <- grid_sf
+
+  # 4) Para cada modo, calcula acc em cutoffs adaptativos e infere T50
+  for (mode in names(ttm_list)) {
+
+    cutoffs_now <- sort(unique(base_cutoffs))
+    t_col <- paste0("t", round(target_share * 100), "_", mode)
+
+    # 4.1 calcula cutoffs base
+    acc_wide <- calc_acc_wide(ttm_list[[mode]], grid_sf, opp_col, cutoffs_now, mode_tag = mode)
+    results <- left_join(results, acc_wide, by = "id")
+
+    # 4.2 calcula T50 preliminar
+    results[[t_col]] <- infer_t_share(
+      results_df = st_drop_geometry(results),
+      opp_total  = opp_total,
+      mode_tag   = mode,
+      opp_col    = opp_col,
+      p          = target_share,
+      cutoffs    = cutoffs_now
+    )
+
+    # 4.3 estende cutoffs apenas se necessário
+    while (any(is.na(results[[t_col]])) && max(cutoffs_now) < max_cutoff) {
+
+      cutoffs_ext <- extend_cutoffs(cutoffs_now, max_cutoff = max_cutoff, step = step_cutoff)
+      add_cutoffs <- setdiff(cutoffs_ext, cutoffs_now)
+
+      if (length(add_cutoffs) == 0) break
+
+      message("Estendendo cutoffs para ", mode, ": +", paste(add_cutoffs, collapse = ", "), " min")
+
+      acc_add <- calc_acc_wide(ttm_list[[mode]], grid_sf, opp_col, add_cutoffs, mode_tag = mode)
+      results <- left_join(results, acc_add, by = "id")
+
+      cutoffs_now <- cutoffs_ext
+
+      results[[t_col]] <- infer_t_share(
+        results_df = st_drop_geometry(results),
+        opp_total  = opp_total,
+        mode_tag   = mode,
+        opp_col    = opp_col,
+        p          = target_share,
+        cutoffs    = cutoffs_now
+      )
+    }
+
+    # Flag de censura (não atingiu o alvo nem no teto)
+    results[[paste0(t_col, "_censored")]] <- is.na(results[[t_col]])
+
+    # 4.4 Resumo municipal a partir dos hexágonos (sem ponderação)
+    city_sum <- summarize_city_from_hex(st_drop_geometry(results), t_col = t_col)
+
+    city_sum <- city_sum |>
+      mutate(
+        code_mn = as.integer(code),
+        mode = mode,
+        target_share = target_share,
+        opp_total = opp_total,
+        max_cutoff_used = max(cutoffs_now)
+      ) |>
+      relocate(code_mn, mode, target_share, opp_total, max_cutoff_used)
+
+    summary_all[[length(summary_all) + 1]] <- city_sum
+  }
+
+  # 5) Salva outputs por município
+  out_gpkg <- file.path(out_dir, paste0(code, "_acc.gpkg"))
+  out_csv  <- file.path(out_dir, paste0(code, "_acc.csv"))
+
+  if (file.exists(out_gpkg)) file.remove(out_gpkg)
+  st_write(results, out_gpkg, delete_dsn = TRUE, quiet = TRUE)
+
+  results_csv <- results |>
+    st_drop_geometry() |>
+    mutate(across(where(is.numeric), ~ as.numeric(.)))
+
+  write_csv(results_csv, out_csv)
+
+  message("Arquivos salvos:")
+  message("  ", normalizePath(out_gpkg))
+  message("  ", normalizePath(out_csv))
+}
+
+# 6) Salva resumo municipal consolidado ---------------------------------------
+summary_df <- bind_rows(summary_all)
+out_summary <- file.path(out_dir, paste0("summary_t", round(target_share * 100), "_by_city.csv"))
+write_csv(summary_df, out_summary)
+message("\nResumo municipal salvo em:\n  ", normalizePath(out_summary))
+
+```
+```{r}
+grade_acesso<-st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/grade3_301025_october.gpkg")
+
+grade_2025<-st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/grade_2025.gpkg")
+
+precario<-grade_2025%>%select(id_hex,Precariedade,Cat_precariedade)
+
+grade_acesso<-grade_acesso%>%st_drop_geometry()
+
+gradefinal<-precario%>%left_join(grade_acesso,by=c("id_hex"="id"))
+                                    
+#salvar grade interseccionada intermediária
+write_sf(gradefinal,"D:/Arquivos/2024/Mestrado/projeto_gilmara/grade_final_october.gpkg")
+```
+

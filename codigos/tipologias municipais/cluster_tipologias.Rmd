@@ -1,0 +1,162 @@
+---
+title: "K-means"
+output: html_document
+date: "2024-06-26"
+---
+#Pacotes necessários
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+library(data.table)
+library(broom)
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+library(knitr)
+library(DT)
+library(readxl)
+library(cleangeo)
+
+library(dplyr)
+library(Rtsne) #plot do pam
+
+#Pacotes clusterizacao
+library(skimr) # Summary statistics
+library(mclust) # Model based clustering
+library(cluster) # Cluster analysis
+library(factoextra) # Visualizing distances
+library(hopkins)#analise de tendencia de cluster
+library(NbClust)
+library(fpc)
+library(kamila)
+#pacotes de mapa
+#library(geobr) 
+library(plotly)
+library(tmap)
+library(spData)
+library(leaflet)
+library(sf)
+library(lwgeom)
+
+library(purrr)
+library(DataExplorer)
+library(rnaturalearth)
+
+
+#install.packages("DataExplorer")
+
+#install.packages("rnaturalearth")
+#install.packages("tidygraph")
+#install.packages("sfnetworks")
+
+library(tidygraph)
+library(sfnetworks)
+#notacao cientifica
+options(scipen=999)
+setwd("C:/Users/gilma/OneDrive/Área de Trabalho/2022/Master project/Dados Pesquisa")
+
+```
+
+# Abrindo os arquivos
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+dados_2024<-read_csv("outputs2024/dados_mun2024_v2.csv", locale=locale(encoding='utf8'))%>%
+  select(-...1)%>%
+  data.frame()
+
+
+dados_2024<-dados_2024%>%select(-Mhab191,-Mhab192,-Mhab193,-Mhab194,-Mtra19,-Mtra23,-pond_desastre)
+
+```
+
+# Padronizando variáveis
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+
+#Padronizar variaveis
+
+dados_padrao<- dados_2024[,-1]#retirando o código do municipio porque não quero padronizar
+row.names(dados_padrao)<- dados_2024[,1] #rotulando as linhas com o código do municipio
+
+dados_padrao<-dados_padrao%>%select(-name_muni)
+
+dados_padrao<- scale(dados_padrao)%>%  #padronizando
+data.frame()
+```
+
+```{r message=FALSE, warning=FALSE}
+#todas as variáveis baseado no cluster k=5;
+
+clust_sel<- dados_padrao%>%select(-area_urb, -EDOC_AGSN)
+
+set.seed(6893)
+#Clusters com n=2
+k2 <- kmeans(clust_sel, 2)
+#Clusters com n=3
+k3 <- kmeans(clust_sel, 3)
+#Clusters com n=4
+k4 <- kmeans(clust_sel, 4)
+#Clusters com n=5
+k5 <- kmeans(clust_sel, 5)
+#Clusters com n=6
+k6 <- kmeans(clust_sel, 6)
+#Clusters com n=7
+k7 <- kmeans(clust_sel, 7)
+#Clusters com n=5
+k8 <- kmeans(clust_sel, 8)
+
+#Juntando os k-means ao banco de dados espaciais
+dados_clust_v2<-dados_padrao %>%
+  mutate(k2 = k2$cluster,
+         k3 = k3$cluster,
+         k4 = k4$cluster,
+          k5 = k5$cluster,
+         k6 = k6$cluster,
+         k7 = k7$cluster,
+         k8 = k8$cluster,
+        )%>% 
+  select(k2,k3,k4,k5,k6,k7,k8)
+
+#rownames to collumn
+dados_clust_v2 <- tibble::rownames_to_column(dados_clust_v2, "Cd_mncp")
+#correção de categorias das colunas numericas
+dados_clust_v2<-lapply(dados_clust_v2,as.numeric)%>%
+  data.frame()
+
+#Geográfico
+mun_BR<-read_sf("censo 2022/BR_Municipios_2022.shp")
+
+mun_BR<- mun_BR%>%
+  rename(Cd_mncp="CD_MUN")%>%
+  mutate(Cd_mncp= as.numeric(Cd_mncp))
+
+#junção ao espacial
+mun_BR<-mun_BR%>%left_join(dados_clust_v2,by="Cd_mncp")
+
+#junção aos dados numéricos originais (sem padronização)
+dados_clust_v2<- dados_clust_v2 %>%left_join(dados_2024, by=c("Cd_mncp"="Cod_municipio"))
+
+
+```
+
+## Visualização dos resultados
+
+```{r message=FALSE, warning=FALSE}
+#Gráfico de mapas 
+
+#Primeiro k-means com todas as variáveis
+Mapa_kmeans<-tm_shape(mun_BR) +
+    tm_polygons(c("k2","k3","k4","k5", "k6", "k7", "k8"), 
+           palette="Spectral",
+           style="cat",
+           lwd=NA,
+            title=c("k2","k3","k4","k5", "k6", "k7", "k8", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("kmeans k=2","kmeans k=3","kmeans k=4", "kmeans k=5", "kmeans k=6", "kmeans k=7", "kmeans k=8"))
+Mapa_kmeans
+
+
+```
+
+
+

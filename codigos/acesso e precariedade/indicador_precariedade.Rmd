@@ -1,0 +1,1011 @@
+---
+title: "analise_precariedade"
+output: html_document
+date: "2024-10-25"
+---
+```{r}
+
+#abrindo as bibliotecas necessárias
+library(data.table)
+library(broom)
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+library(knitr)
+library(DT)
+library(readxl)
+library(cleangeo)
+library(corrplot)
+
+library(dplyr)
+library(Rtsne) #plot do pam
+
+#Pacotes clusterizacao
+library(skimr) # Summary statistics
+library(mclust) # Model based clustering
+library(cluster) # Cluster analysis
+library(factoextra) # Visualizing distances
+library(hopkins)#analise de tendencia de cluster
+library(NbClust)
+library(fpc)
+library(kamila)
+#pacotes de mapa
+library(geobr) 
+library(plotly)
+library(tmap)
+library(spData)
+library(leaflet)
+library(sf)
+library(lwgeom)
+library(car)
+library(purrr)
+
+library(gridExtra)
+library(tidygraph)
+library(sfnetworks)
+
+#notacao cientifica
+options(scipen=999)
+
+```
+
+
+
+#abrindo arquivos e organizando
+```{r}
+
+#abrir grade final
+
+grade_hex<-st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/grade3_301025_october.gpkg")
+
+
+
+```
+
+#padronizar variáveis
+```{r}
+#Padronizar variaveis
+
+dados_padrao<- grade_hex%>% st_drop_geometry() %>%
+  select(-id_hex,-code_mn.x,-cluster,-selecionado,-name_state,-name_region,-name_muni,-fcu,-name_cl,-outlier, -cd_1,-cd_2,-cd_3,-cd_4,-cd_5,-cd_6,-cd_7,-cd_8)%>%
+  scale()%>% #padronizando
+  data.frame()
+                                  
+row.names(dados_padrao)<- grade_hex$id_hex #rotulando as linhas com o código do municipio
+
+```
+
+# Analise exploratoria
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+
+# Resumo estatístico dos dados
+summary<-summary(grade_2022)%>%
+  data.frame()
+
+
+# Visualização da matriz de correlação
+cor_matrix <- cor(dados_padrao,use = "complete.obs")
+
+corrplot(cor_matrix, method = "circle")
+
+corrplot(cor_matrix, order = "hclust", addrect = 3, tl.pos="d")
+
+
+
+
+```
+
+```{r}
+
+#visualizar médias das variáveis
+
+grade_hex$fcu <- factor(grade_hex$fcu)
+
+#MUNICIPIOS SELECIONADOS
+codigos_municipios <- c(
+4104204,
+3127701,
+3302700,
+1301209,
+5003207,
+1100205,
+3513801,
+3515004,
+3529401,
+2107506,
+2111300,
+2211001,
+3304557,
+3550308,
+4202404,
+4309209,
+4209409,
+2607208,
+5212501,
+2412005
+)
+
+grade_2022_mun <- grade_hex[grade_hex$code_mn.x %in% codigos_municipios, ]
+grade_2022_mun%>%colnames()
+
+medias2022<-grade_2022_mun%>%
+  select(-id_hex,-cluster,-selecionado,-name_state,-name_region,-name_muni,-name_cl,-outlier, -cd_1,-cd_2,-cd_3,-cd_4,-cd_5,-cd_6,-cd_7,-cd_8)%>%
+  group_by(code_mn.x, fcu)%>%
+  summarize(across(everything(),
+                   mean,
+                   na.rm=T))
+
+
+info_cluster<- read.csv2("D:/Arquivos/2024/Mestrado/projeto_gilmara/AREA URB/rcluster.csv")%>%
+  mutate(code_mn=as.character(Cod_municipio))
+
+medias_dados<-medias2022%>%mutate(code_mn.x=as.character(code_mn.x))%>%
+  left_join(info_cluster,by=c("code_mn.x"="code_mn"))
+
+
+
+
+
+library(writexl)
+
+#salvar grade fim-com variaveis calculadas
+medias_dados2<-st_drop_geometry(medias_dados)
+write_xlsx(medias_dados2,"D:/Arquivos/2024/Mestrado/projeto_gilmara/media_dados_final.xlsx")
+
+
+```
+
+
+```{r}
+
+
+
+# Plotar o gráfico
+
+colnames(medias_dados2)
+medias_dados2 <- medias_dados2 %>%
+  arrange(desc(name_cl))
+
+#arrumar porcentagens em decimais
+
+medias_dados2 <- medias_dados2 %>%mutate(
+  p_lixo22=(p_lixo22*100),
+  p_agua22=(p_agua22*100),
+  p_esg22=(p_esg22*100),
+  p_ban22=(p_ban22*100)
+)
+
+#Proporção de domicílios sem coleta de lixo
+# Gráfico com diferenciação d clusters e FCU
+
+prclixo<-ggplot(medias_dados2, aes(x = p_lixo22, y = name_cl, color = factor(fcu))) +
+  geom_point(size = 2) +  # Pontos representando NÃO FCU = 0 e FCU = 1
+  geom_line(aes(group = code_mn.x, color = factor(cluster)), size = 1) +  # Linhas coloridas pelo cluster
+  scale_color_manual(
+    name = "FCU/ Tipologias",
+    values = c("0" = "blue", "1" = "red", "clust1" = "#66c2a5", "clust2" = "#a6d854", "clust3" = "#8da0cb", "clust4"="#e78ac3","clust5"="#fc8d62","clust6"="#ffd92f","clust7"="#b3b3b3"),
+    labels = c("Não FCU", "FCU", "Tipologia 1", "Tipologia 2", "Tipologia 3","Tipologia 4", "Tipologia 5", "Tipologia 6", "Tipologia 7")
+  ) +
+  labs(
+    x = "Proporção de domicílios sem coleta de lixo(%)",
+    y = "Municípios",
+    color = "FCU e Tipologia"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "left",
+    axis.text.x = element_text(angle = 0, hjust = 0),
+    axis.text.y = element_text(color = "gray20",size = 7, hjust = 0,vjust = 0)+
+   theme(
+    aspect.ratio = 1.5 )) # Aumentar o espaçamento vertical para ajustar o tamanho A4
+
+ggsave("D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/grafico_prclixo.png", plot = prclixo, width = 10, height = 6, dpi = 300)
+ 
+# Densidade por km² de pessoas por domicílio
+# Gráfico com diferenciação de clusters e AGSN
+plot_den<-ggplot(medias_dados2, aes(x = ddom22, y = name_cl, color = factor(fcu))) +
+  geom_point(size = 2) +  # Pontos representando NÃO FCU = 0 e FCU = 1
+  geom_line(aes(group = code_mn.x, color = factor(cluster)), size = 1) +  # Linhas coloridas pelo cluster
+  scale_color_manual(
+    name = "FCU/ Tipologia",
+    values = c("0" = "blue", "1" = "red", "clust1" = "#66c2a5", "clust2" = "#a6d854", "clust3" = "#8da0cb", "clust4"="#e78ac3","clust5"="#fc8d62","clust6"="#ffd92f","clust7"="#b3b3b3"),
+    labels = c("Não FCU", "FCU", "Tipologia 1", "Tipologia 2", "Tipologia 3","Tipologia", "Tipologia 5", "Tipologia6", "Tipologia 7")
+  ) +
+  labs(
+    x = "Densidade de domicílios por km²",
+    y = "Municípios",
+    color = "FCU e Tipologias"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "left",
+    axis.text.x = element_text(angle = 0, hjust = 0),
+    axis.text.y = element_text(color = "gray20",size = 7, margin = margin(r = 5))+
+   theme(
+    aspect.ratio = 1.5 )) # Aumentar o espaçamento vertical para ajustar o tamanho A4
+ggsave("D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/grafico_densdom.png", plot = plot_den, width = 10, height = 6, dpi = 300)
+
+
+
+#  Porcentagem de domicílios sem ligação à rede de abastecimento de água
+# Gráfico com diferenciação de clusters e AGSN
+plot_agua<-ggplot(medias_dados2, aes(x = p_agua22, y = name_cl, color = factor(fcu))) +
+  geom_point(size = 2) +  # Pontos representando AGSN = 0 e AGSN = 1
+  geom_line(aes(group = code_mn.x, color = factor(cluster)), size = 1) +  # Linhas coloridas pelo cluster
+  scale_color_manual(
+    name = "FCU / Tipologias",
+    values = c("0" = "blue", "1" = "red", "clust1" = "#66c2a5", "clust2" = "#a6d854", "clust3" = "#8da0cb", "clust4"="#e78ac3","clust5"="#fc8d62","clust6"="#ffd92f","clust7"="#b3b3b3"),
+    labels = c("Não FCU", "FCU", "Tipologia 1", "Tipologia 2", "Tipologia 3","Tipologia 4", "Tipologia 5", "Tipologia 6", "Tipologia 7")
+  ) +
+  labs(
+    x = " Porcentagem de domicílios sem ligação à rede de abastecimento de água",
+    y = "Municípios",
+    color = "FCU e Tipologias"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "left",
+    axis.text.x = element_text(angle = 0, hjust = 0.4),
+    axis.text.y = element_text(color = "gray20",size = 7, margin = margin(r = 5))+
+   theme(
+    aspect.ratio = 1.5 )) # Aumentar o espaçamento vertical para ajustar o tamanho A4
+ggsave("D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/grafico_AGUA.png", plot = plot_agua, width = 10, height = 6, dpi = 300)
+
+
+#   Porcentagem de domicílios sem banheiros ou sanitários
+# Gráfico com diferenciação de clusters e AGSN
+plot_sban<-ggplot(medias_dados2, aes(x = p_ban22, y = name_cl, color = factor(fcu))) +
+  geom_point(size = 2) +  # Pontos representando AGSN = 0 e AGSN = 1
+  geom_line(aes(group = code_mn.x, color = factor(cluster)), size = 1) +  # Linhas coloridas pelo cluster
+  scale_color_manual(
+    name = "AGSN / Cluster",
+    values = c("0" = "blue", "1" = "red", "clust1" = "#66c2a5", "clust2" = "#a6d854", "clust3" = "#8da0cb", "clust4"="#e78ac3","clust5"="#fc8d62","clust6"="#ffd92f","clust7"="#b3b3b3"),
+    labels = c("Não FCU", "FCU", "Tipologia 1", "Tipologia 2", "Tipologia 3","Tipologia 4", "Tipologia 5", "Tipologia 6", "Tipologia 7")
+  ) +
+  labs(
+    x = "Porcentagem de domicílios sem banheiros ou sanitários",
+    y = "Municípios",
+    color = "FCU e Tipologias"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "left",
+    axis.text.x = element_text(angle = 0, hjust = 0.4),
+    axis.text.y = element_text(color = "gray20",size = 7, margin = margin(r = 5))+
+   theme(
+    aspect.ratio = 1.5 )) # Aumentar o espaçamento vertical para ajustar o tamanho A4
+ggsave("D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/grafico_SBAN.png", plot = plot_sban, width = 10, height = 6, dpi = 300)
+
+
+#    Porcentagem de domicílios sem ligação à rede de esgoto ou fossa séptica
+# Gráfico com diferenciação de clusters e AGSN
+PLOT_ESG<-ggplot(medias_dados2, aes(x = p_esg22, y = name_cl, color = factor(fcu))) +
+  geom_point(size = 2) +  # Pontos representando AGSN = 0 e AGSN = 1
+  geom_line(aes(group = code_mn.x, color = factor(cluster)), size = 1) +  # Linhas coloridas pelo cluster
+  scale_color_manual(
+    name = "FCU / Tipologia",
+    values = c("0" = "blue", "1" = "red", "clust1" = "#66c2a5", "clust2" = "#a6d854", "clust3" = "#8da0cb", "clust4"="#e78ac3","clust5"="#fc8d62","clust6"="#ffd92f","clust7"="#b3b3b3"),
+    labels = c("Não FCU", "FCU", "Tipologia 1", "Tipologia 2", "Tipologia 3","Tipologia 4", "Tipologia 5", "Tipologia 6", "Tipologia 7")
+  ) +
+  labs(
+    x = " Porcentagem de domicílios sem ligação à rede de esgoto ou fossa séptica",
+    y = "Municípios",
+    color = "FCU e Tipologia"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "left",
+    axis.text.x = element_text(angle = 0, hjust = 0.4),
+    axis.text.y = element_text(color = "gray20",size = 7, margin = margin(r = 5))+
+   theme(
+    aspect.ratio = 1.5 )) # Aumentar o espaçamento vertical para ajustar o tamanho A4
+ggsave("D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/grafico_ESG.png", plot = PLOT_ESG, width = 10, height = 6, dpi = 300)
+
+
+
+#  Rendimento domiciliar médio do responsável (R$)
+# Gráfico com diferenciação de clusters e AGSN
+plot_rend<-ggplot(medias_dados2, aes(x = rendresp,  y = name_cl, color = factor(fcu))) +
+  geom_point(size = 2) +  # Pontos representando AGSN = 0 e AGSN = 1
+  geom_line(aes(group = code_mn.x, color = factor(cluster)), size = 1) +  # Linhas coloridas pelo cluster
+  scale_color_manual(
+    name = "AGSN / Cluster",
+    values = c("0" = "blue", "1" = "red", "clust1" = "#66c2a5", "clust2" = "#a6d854", "clust3" = "#8da0cb", "clust4"="#e78ac3","clust5"="#fc8d62","clust6"="#ffd92f","clust7"="#b3b3b3"),
+    labels = c("Não FCU", "FCU", "Tipologia 1", "Tipologia 2", "Tipologia 3","Tipologia 4", "Tipologia 5", "Tipologia 6", "Tipologia 7")
+  ) +
+  labs(
+    x = "Rendimento domiciliar per capita (R$)",
+    y = "Municípios",
+    color = "FCU e Tipologias"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "left",
+    axis.text.x = element_text(angle = 0, hjust = 0.4),
+    axis.text.y = element_text(color = "gray20",size = 7, margin = margin(r = 5))+
+   theme(
+    aspect.ratio = 1.5 )) # Aumentar o espaçamento vertical para ajustar o tamanho A4
+
+ggsave("D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/grafico_REND.png", plot = plot_rend, width = 10, height = 6, dpi = 300)
+
+#  Declividade média do terreno
+# Gráfico com diferenciação de clusters e AGSN
+PLOT_DECL<-ggplot(medias_dados2, aes(x = decl_md,  y = name_cl, color = factor(fcu))) +
+  geom_point(size = 2) +  # Pontos representando AGSN = 0 e AGSN = 1
+  geom_line(aes(group = code_mn.x, color = factor(cluster)), size = 1) +  # Linhas coloridas pelo cluster
+  scale_color_manual(
+    name = "FCU / Tipologias",
+    values = c("0" = "blue", "1" = "red", "clust1" = "#66c2a5", "clust2" = "#a6d854", "clust3" = "#8da0cb", "clust4"="#e78ac3","clust5"="#fc8d62","clust6"="#ffd92f","clust7"="#b3b3b3"),
+    labels = c("Não FCU", "FCU", "Tipologia 1", "Tipologia 2", "Tipologia 3","Tipologia 4", "Tipologia 5", "Tipologia 6", "Tipologia 7")
+  ) +
+  labs(
+    x = "Declividade média do terreno",
+    y = "Municípios",
+    color = "FCU e Tipologias"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "left",
+    axis.text.x = element_text(angle = 0, hjust = 0.4),
+    axis.text.y = element_text(color = "gray20",size = 7, margin = margin(r = 5))+
+   theme(
+    aspect.ratio = 1.5 )) # Aumentar o espaçamento vertical para ajustar o tamanho A4
+ggsave("D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/grafico_DECL.png", plot = PLOT_DECL, width = 10, height = 6, dpi = 300)
+
+#   % Área Distância de 15m ao curso d'água
+# Gráfico com diferenciação de clusters e AGSN
+PLOT_APP<-ggplot(medias_dados2, aes(x = p_app,  y = name_cl, color = factor(fcu))) +
+  geom_point(size = 2) +  # Pontos representando AGSN = 0 e AGSN = 1
+  geom_line(aes(group = code_mn.x, color = factor(cluster)), size = 1) +  # Linhas coloridas pelo cluster
+  scale_color_manual(
+    name = "FCU / Tipologias",
+    values = c("0" = "blue", "1" = "red", "clust1" = "#66c2a5", "clust2" = "#a6d854", "clust3" = "#8da0cb", "clust4"="#e78ac3","clust5"="#fc8d62","clust6"="#ffd92f","clust7"="#b3b3b3"),
+    labels = c("Não FCU", "FCU", "Tipologia 1", "Tipologia 2", "Tipologia 3","Tipologia 4", "Tipologia 5", "Tipologia 6", "Tipologia 7")
+  ) +
+  labs(
+    x = " % Área Distância de 15m ao curso d'água",
+    y = "Municípios",
+    color = "FCU e Tipologias"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "left",
+    axis.text.x = element_text(angle = 0, hjust = 0.4),
+    axis.text.y = element_text(color = "gray20",size = 7, margin = margin(r = 5))+
+   theme(
+    aspect.ratio = 1.5 )) # Aumentar o espaçamento vertical para ajustar o tamanho A4
+ggsave("D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/grafico_APP.png", plot = PLOT_APP, width = 10, height = 6, dpi = 300)
+
+#  % Área Distância de 15m ao curso d'água ocupada
+# Gráfico com diferenciação de clusters e AGSN
+PLOT_APPOC<-ggplot(medias_dados2, aes(x = p_appcp,  y = name_cl, color = factor(fcu))) +
+  geom_point(size = 2) +  # Pontos representando AGSN = 0 e AGSN = 1
+  geom_line(aes(group = code_mn.x, color = factor(cluster)), size = 1) +  # Linhas coloridas pelo cluster
+  scale_color_manual(
+    name = "FCU / Tipologias",
+    values = c("0" = "blue", "1" = "red", "clust1" = "#66c2a5", "clust2" = "#a6d854", "clust3" = "#8da0cb", "clust4"="#e78ac3","clust5"="#fc8d62","clust6"="#ffd92f","clust7"="#b3b3b3"),
+    labels = c("Não FCU", "FCU", "Tipologia 1", "Tipologia 2", "Tipologia 3","Tipologia 4", "Tipologia 5", "Tipologia 6", "Tipologia 7")
+  ) +
+  labs(
+    x = " % Área Distância de 15m ao curso d'água ocupada",
+    y = "Municípios",
+    color = "FCU e Tipologias"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "left",
+    axis.text.x = element_text(angle = 0, hjust = 0.4),
+    axis.text.y = element_text(color = "gray20",size = 7, margin = margin(r = 5))+
+   theme(
+    aspect.ratio = 1.5 )) # Aumentar o espaçamento vertical para ajustar o tamanho A4
+
+ggsave("D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/grafico_APPOC.png", plot = PLOT_APPOC, width = 10, height = 6, dpi = 300)
+
+
+#   % Área de risco mapeados
+# Gráfico com diferenciação de clusters e AGSN
+PLOT_RISCO<-ggplot(medias_dados2, aes(x = p_risco,  y = name_cl, color = factor(fcu))) +
+  geom_point(size = 2) +  # Pontos representando AGSN = 0 e AGSN = 1
+  geom_line(aes(group = code_mn.x, color = factor(cluster)), size = 1) +  # Linhas coloridas pelo cluster
+  scale_color_manual(
+    name = "FCU / Tipologias",
+    values = c("0" = "blue", "1" = "red", "clust1" = "#66c2a5", "clust2" = "#a6d854", "clust3" = "#8da0cb", "clust4"="#e78ac3","clust5"="#fc8d62","clust6"="#ffd92f","clust7"="#b3b3b3"),
+    labels = c("Não FCU ", "FCU ", "Tipologia 1", "Tipologia 2", "Tipologia 3","Tipologia 4", "Tipologia 5", "Tipologia 6", "Tipologia 7")
+  ) +
+  labs(
+    x = " % Área de risco mapeados",
+    y = "Municípios",
+    color = "FCU  e Tipologias"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "left",
+    axis.text.x = element_text(angle = 0, hjust = 0.4),
+    axis.text.y = element_text(color = "gray20",size = 7, margin = margin(r = 5))+
+   theme(
+    aspect.ratio = 1.5 )) # Aumentar o espaçamento vertical para ajustar o tamanho A4
+
+ggsave("D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/grafico_RISCO.png", plot = PLOT_RISCO, width = 10, height = 6, dpi = 300)
+
+
+
+
+
+
+
+
+
+
+```
+
+
+#clusterização
+```{r}
+
+#preparar dados para clusterização -
+
+#Padronizar variaveis
+
+dados_fcu<-grade_2022_mun%>%
+  filter(fcu==1)
+
+dados_cluster_fcu<- dados_fcu%>%st_drop_geometry()%>%
+  select(ddom22,p_agua22,p_ban22,p_esg22,p_appcp,p_risco)%>%
+  scale()%>% #padronizando
+  data.frame()
+
+row.names(dados_cluster_fcu)<- dados_fcu$id_hex #rotulando as linhas com o código do municipio
+
+
+dados_cluster_fcu2<- dados_fcu%>%st_drop_geometry()%>%
+  select(ddom22,p_agua22,p_ban22,p_esg22,p_appcp,decl_md)%>%
+  scale()%>% #padronizando
+  data.frame()
+
+row.names(dados_cluster_fcu2)<- dados_fcu$id_hex #rotulando as linhas com o código do municipio
+
+
+
+```
+
+
+```{r}
+colnames(dados_fcu)
+#Box plot slope mean
+slope<-
+  dados_fcu%>%  
+  ggplot()+
+  geom_boxplot(aes(x=cluster, y=decl_md,fill = cluster))+
+  ggtitle("Declividade média das favelas e comunidades urbanas" )+
+  xlab("Clusters")+
+  ylab("Declividade média das favelas e comunidades urbanas")+
+  scale_fill_manual(values = c(
+    "clust1" = "#66c2a5", 
+    "clust2" = "#a6d854", 
+    "clust3" = "#8da0cb", 
+    "clust4" = "#e78ac3", 
+    "clust5" = "#fc8d62", 
+    "clust6" = "#ffd92f", 
+    "clust7" = "#b3b3b3"
+  ))
+ggsave("outputs2024/graficos_cluster/grafico_slope.png", plot = slope, width = 10, height = 6, dpi = 300)
+
+
+
+  dados_fcu%>%  
+  ggplot()+
+  geom_boxplot(aes(x=cluster, y=p_appcp,fill = cluster))+
+  ggtitle("Porcentagem de APP ocupada em favelas e comunidades urbanas" )+
+  xlab("Clusters")+
+  ylab("Porcentagem de APP ocupada em  favelas e comunidades urbanas")+
+  scale_fill_manual(values = c(
+    "clust1" = "#66c2a5", 
+    "clust2" = "#a6d854", 
+    "clust3" = "#8da0cb", 
+    "clust4" = "#e78ac3", 
+    "clust5" = "#fc8d62", 
+    "clust6" = "#ffd92f", 
+    "clust7" = "#b3b3b3"
+  ))
+
+  
+    dados_fcu%>%  
+  ggplot()+
+  geom_boxplot(aes(x=cluster, y=ddom22,fill = cluster))+
+  ggtitle("Densidade de domicílios por km² em favelas e comunidades urbanas" )+
+  xlab("Clusters")+
+  ylab("Densidade de domicílios por km² em  favelas e comunidades urbanas")+
+  scale_fill_manual(values = c(
+    "clust1" = "#66c2a5", 
+    "clust2" = "#a6d854", 
+    "clust3" = "#8da0cb", 
+    "clust4" = "#e78ac3", 
+    "clust5" = "#fc8d62", 
+    "clust6" = "#ffd92f", 
+    "clust7" = "#b3b3b3"
+  ))
+    
+    
+       dados_fcu%>%  
+  ggplot()+
+  geom_boxplot(aes(x=cluster, y=p_agua22,fill = cluster))+
+  ggtitle("Porcentagem de domicílios sem ligação à rede de abastecimento de água
+          em favelas e comunidades urbanas" )+
+  xlab("Clusters")+
+  ylab("Porcentagem de domicílios sem ligação à rede de abastecimento de água
+       em  favelas e comunidades urbanas")+
+  scale_fill_manual(values = c(
+    "clust1" = "#66c2a5", 
+    "clust2" = "#a6d854", 
+    "clust3" = "#8da0cb", 
+    "clust4" = "#e78ac3", 
+    "clust5" = "#fc8d62", 
+    "clust6" = "#ffd92f", 
+    "clust7" = "#b3b3b3"
+  ))
+       
+        dados_fcu%>%  
+  ggplot()+
+  geom_boxplot(aes(x=cluster, y=p_ban22,fill = cluster))+
+  ggtitle("Porcentagem de domicílios sem banheiros ou sanitários
+          em favelas e comunidades urbanas" )+
+  xlab("Clusters")+
+  ylab("Porcentagem de domicílios sem banheiros ou sanitários
+       em  favelas e comunidades urbanas")+
+  scale_fill_manual(values = c(
+    "clust1" = "#66c2a5", 
+    "clust2" = "#a6d854", 
+    "clust3" = "#8da0cb", 
+    "clust4" = "#e78ac3", 
+    "clust5" = "#fc8d62", 
+    "clust6" = "#ffd92f", 
+    "clust7" = "#b3b3b3"
+  ))
+
+
+     dados_fcu%>%  
+  ggplot()+
+  geom_boxplot(aes(x=cluster, y=p_esg22,fill = cluster))+
+  ggtitle("Porcentagem de domicílios sem ligação à rede de esgoto ou fossa séptica
+          em favelas e comunidades urbanas" )+
+  xlab("Clusters")+
+  ylab("Porcentagem de domicílios sem ligação à rede de esgoto ou fossa séptica
+       em  favelas e comunidades urbanas")+
+  scale_fill_manual(values = c(
+    "clust1" = "#66c2a5", 
+    "clust2" = "#a6d854", 
+    "clust3" = "#8da0cb", 
+    "clust4" = "#e78ac3", 
+    "clust5" = "#fc8d62", 
+    "clust6" = "#ffd92f", 
+    "clust7" = "#b3b3b3"
+  ))
+     
+     
+          dados_fcu%>%  
+  ggplot()+
+  geom_boxplot(aes(x=cluster, y=p_risco,fill = cluster))+
+  ggtitle("Porcentagem em área de risco
+          em favelas e comunidades urbanas" )+
+  xlab("Clusters")+
+  ylab("Porcentagem em área de risco
+       em  favelas e comunidades urbanas")+
+  scale_fill_manual(values = c(
+    "clust1" = "#66c2a5", 
+    "clust2" = "#a6d854", 
+    "clust3" = "#8da0cb", 
+    "clust4" = "#e78ac3", 
+    "clust5" = "#fc8d62", 
+    "clust6" = "#ffd92f", 
+    "clust7" = "#b3b3b3"
+  ))
+
+          
+          
+```
+
+
+##Calculo K-means para diferentes K##
+```{r}
+#CLUSTERIZAÇÃO KMEANS
+
+set.seed(123)# reprodutibilidade
+
+
+#clusterização agsn
+k4 <- kmeans(dados_cluster_fcu, 4)
+k3 <- kmeans(dados_cluster_fcu, 3)
+k3_v2 <- kmeans(dados_cluster_fcu2, 3)
+
+hex_cluster_fcu<- dados_fcu%>%mutate(
+ km3= k3$cluster,
+ km4= k4$cluster,
+ km3_v2=k3_v2$cluster)%>%
+    mutate(km4= as.factor(km4),
+         km3= as.factor(km3),
+        km3_v2=as.factor(km3_v2))
+
+#salvar grade com clusters
+write_sf(hex_cluster_fcu,"D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/hex_cluster_fcu.gpkg")
+
+
+
+colnames(hex_cluster_fcu)
+#três categorias
+hex_medias_km3<-hex_cluster_fcu%>%
+  select(-id_hex,-cluster,-selecionado,-name_state,-name_region,-name_muni,-km4,-outlier,-name_cl)%>%
+  group_by(km3)%>%
+  summarize(across(everything(),
+                   mean,
+                   na.rm=T))
+
+cont<-hex_cluster_fcu%>%group_by(km3)%>%
+  tally()
+
+
+hex_medias_km3_v2<-hex_cluster_fcu%>%
+  select(-id_hex,-cluster,-selecionado,-name_state,-name_region,-name_muni,-km4,-outlier,-name_cl)%>%
+  group_by(km3_v2)%>%
+  summarize(across(everything(),
+                   mean,
+                   na.rm=T))
+
+#quatro categorias
+hex_medias_km4<-hex_cluster_fcu%>%
+  select(-id_hex,-cluster,-selecionado,-name_state,-name_region,-name_muni,-km3,-outlier,-name_cl)%>%
+  group_by(km4)%>%
+  summarize(across(everything(),
+                   mean,
+                   na.rm=T))
+
+
+
+```
+
+
+#clusterização por cluster
+```{r}
+
+#preparar dados para clusterização -
+
+#Padronizar variaveis
+
+#clust1 
+dados_fcu<-grade_2022_mun%>%
+  filter(fcu==1)
+
+dados_fcu$cluster <- factor(dados_fcu$cluster)
+
+dados_cluster_fcu<- dados_fcu%>%st_drop_geometry()%>%
+  select(id_hex,p_agua22,p_ban22,p_esg22,p_appcp,p_lixo22,p_risco,cluster)
+ 
+  
+  
+
+
+row.names(dados_cluster_fcu2)<- dados_fcu$id_hex #rotulando as linhas com o código do municipio
+
+ dados_fcu <- dados_fcu %>%
+  mutate(across(c(ddom22, p_agua22, p_ban22, p_esg22, p_appcp, decl_md), as.numeric))%>%
+   st_drop_geometry()
+ 
+ 
+ colSums(is.na(dados_cluster_fcu))
+
+ 
+
+# Exemplo de dados
+set.seed(123)
+
+library(dplyr)
+library(purrr)
+
+# Função para realizar o k-means em cada grupo
+realiza_kmeans <- function(data, n_clusters = 3) {
+  # Verificar se há variabilidade nas variáveis numéricas
+  numeric_data <- data %>% select(-id_hex, -cluster)
+  variabilidade <- apply(numeric_data, 2, sd) > 0
+  
+  # Filtrar variáveis com variabilidade
+  if (all(!variabilidade)) {
+    stop("Não há variabilidade suficiente para rodar o k-means.")
+  }
+  numeric_data <- numeric_data[, variabilidade]
+  
+  # Padronizar os dados numéricos
+  numeric_scaled <- scale(numeric_data)
+  
+  # Verificar se o grupo tem dados suficientes para k-means
+  if (nrow(data) < n_clusters) {
+    stop("Número de observações menor que o número de clusters.")
+  }
+  
+  # Aplicar o k-means
+  kmeans_result <- kmeans(numeric_scaled, centers = n_clusters, nstart = 25)
+  
+  # Adicionar o cluster resultante ao dataframe original
+  data <- data %>%
+    mutate(kmeans_cluster = kmeans_result$cluster)
+  
+  return(data)
+}
+
+# Aplicar o processo para cada grupo da coluna "cluster"
+resultados <- dados_cluster_fcu %>%
+  group_by(cluster) %>%
+  group_split() %>%
+  map_dfr(~ realiza_kmeans(.x))
+
+# Resultado final com todas as categorias unidas
+resultados_finais <- resultados %>%
+  arrange(cluster, id_hex)
+
+# Visualizar o resultado
+head(resultados_finais)
+
+
+
+#três categorias
+
+hex_medias_km3<-resultados_finais%>%
+  select(-id_hex)%>%
+  group_by(cluster, kmeans_cluster)%>%
+  summarize(across(everything(),
+                   mean,
+                   na.rm=T))
+
+cont<-resultados_finais%>%group_by(cluster, kmeans_cluster)%>%
+  tally()
+
+precariedade_df <- data.frame(
+  cluster = c("clust5", "clust3", "clust4", "clust7", "clust2", 
+              "clust4", "clust6", "clust1", "clust3", "clust5", 
+              "clust6", "clust7", "clust2", "clust1", "clust2", 
+              "clust6", "clust7", "clust3", "clust4", "clust1", 
+              "clust5"),
+  kmeans_cluster = c(3, 2, 3, 3, 3, 2, 2, 1, 1, 1, 1, 1, 2, 2, 1, 
+                     3, 2, 3, 1, 3, 2),
+  Precariedade = c("ALTA", "ALTA", "ALTA", "ALTA", "ALTA", 
+                   "MÉDIA", "ALTA", "ALTA", "MÉDIA", "MÉDIA", 
+                   "MÉDIA", "MÉDIA", "MÉDIA", "MÉDIA", "BAIXA", 
+                   "BAIXA", "BAIXA", "BAIXA", "BAIXA", "BAIXA", 
+                   "BAIXA"),
+  Cat_precariedade = c("clust5-A", "clust3-A", "clust4-A", "clust7-A", 
+                       "clust2-A", "clust4-M", "clust6-A", "clust1-A", 
+                       "clust3-M", "clust5-M", "clust6-M", "clust7-M", 
+                       "clust2-M", "clust1-M", "clust2-B", "clust6-B", 
+                       "clust7-B", "clust3-B", "clust4-B", "clust1-B", 
+                       "clust5-B")
+)
+
+
+resultados_classificados<-resultados_finais %>%
+  left_join(precariedade_df, by = c("cluster", "kmeans_cluster"))
+resultados_classificados<-resultados_classificados%>%select(id_hex,Precariedade,Cat_precariedade)
+
+dados_fcu_final<-dados_fcu%>%left_join(resultados_classificados,by="id_hex")
+  
+#salvar grade com clusters
+write_sf(dados_fcu_final,"D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/hex2022_fcu.gpkg")
+
+
+```
+
+##Calculo K-means para diferentes K##
+```{r}
+#CLUSTERIZAÇÃO KMEANS
+
+set.seed(123)# reprodutibilidade
+
+
+#clusterização agsn
+k4 <- kmeans(dados_cluster_fcu, 4)
+k3 <- kmeans(dados_cluster_fcu, 3)
+k3_v2 <- kmeans(dados_cluster_fcu2, 3)
+
+hex_cluster_fcu<- dados_fcu%>%mutate(
+ km3= k3$cluster,
+ km4= k4$cluster,
+ km3_v2=k3_v2$cluster)%>%
+    mutate(km4= as.factor(km4),
+         km3= as.factor(km3),
+        km3_v2=as.factor(km3_v2))
+
+#salvar grade com clusters
+write_sf(hex_cluster_fcu,"D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/hex_cluster_fcu.gpkg")
+
+hex_cluster_fcu<-st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/hex_cluster_fcu.gpkg")
+
+colnames(hex_cluster_fcu)
+#três categorias
+hex_medias_km3<-hex_cluster_fcu%>%
+  select(-id_hex,-cluster,-selecionado,-name_state,-name_region,-name_muni,-km4,-outlier,-name_cl)%>%
+  group_by(km3)%>%
+  summarize(across(everything(),
+                   mean,
+                   na.rm=T))
+
+cont<-hex_cluster_fcu%>%group_by(km3)%>%
+  tally()
+
+
+hex_medias_km3_v2<-hex_cluster_fcu%>%
+  select(-id_hex,-cluster,-selecionado,-name_state,-name_region,-name_muni,-km4,-outlier,-name_cl)%>%
+  group_by(km3_v2)%>%
+  summarize(across(everything(),
+                   mean,
+                   na.rm=T))
+
+#quatro categorias
+hex_medias_km4<-hex_cluster_fcu%>%
+  select(-id_hex,-cluster,-selecionado,-name_state,-name_region,-name_muni,-km3,-outlier,-name_cl)%>%
+  group_by(km4)%>%
+  summarize(across(everything(),
+                   mean,
+                   na.rm=T))
+
+
+
+```
+
+#GERAR O INDICE PARA TODOS OS MUNICIPIOS
+
+#abrindo arquivos e organizando
+```{r}
+
+#abrir grade final
+
+grade_2025<-st_read("D:/Arquivos/2024/Mestrado/projeto_gilmara/grade_final_october.gpkg")
+
+
+
+```
+
+#padronizar variáveis
+```{r}
+#Padronizar variaveis
+
+dados_padrao<- grade_2025%>%st_drop_geometry()%>%
+  select(-id_hex,-code_mn.x,-cluster,-selecionado,-name_state,-name_region,-name_muni,-fcu,-name_cl,-outlier, -cd_1,-cd_2,-cd_3,-cd_4,-cd_5,-cd_6,-cd_7,-cd_8)%>%
+  scale()%>% #padronizando
+  data.frame()
+                                  
+row.names(dados_padrao)<- grade_2025$id_hex #rotulando as linhas com o código do municipio
+
+```
+
+
+
+
+
+```{r}
+
+#preparar dados para clusterização -
+
+#Padronizar variaveis
+
+#clust1 
+dados_fcu<-grade_2022_mun%>%
+  filter(fcu==1)
+
+dados_fcu$cluster <- factor(dados_fcu$cluster)
+
+dados_cluster_fcu<- dados_fcu%>%st_drop_geometry()%>%
+  select(id_hex,p_agua22,p_ban22,p_esg22,p_appcp,p_lixo22,p_risco,cluster)
+ 
+  
+  
+
+
+row.names(dados_cluster_fcu2)<- dados_fcu$id_hex #rotulando as linhas com o código do municipio
+
+ dados_fcu <- dados_fcu %>%
+  mutate(across(c(ddom22, p_agua22, p_ban22, p_esg22, p_appcp, decl_md), as.numeric))%>%
+   st_drop_geometry()
+ 
+ 
+ colSums(is.na(dados_cluster_fcu))
+
+   scale()%>% #padronizando
+  data.frame()
+
+# Exemplo de dados
+set.seed(123)
+
+library(dplyr)
+library(purrr)
+
+# Função para realizar o k-means em cada grupo
+realiza_kmeans <- function(data, n_clusters = 3) {
+  # Verificar se há variabilidade nas variáveis numéricas
+  numeric_data <- data %>% select(-id_hex, -cluster)
+  variabilidade <- apply(numeric_data, 2, sd) > 0
+  
+  # Filtrar variáveis com variabilidade
+  if (all(!variabilidade)) {
+    stop("Não há variabilidade suficiente para rodar o k-means.")
+  }
+  numeric_data <- numeric_data[, variabilidade]
+  
+  # Padronizar os dados numéricos
+  numeric_scaled <- scale(numeric_data)
+  
+  # Verificar se o grupo tem dados suficientes para k-means
+  if (nrow(data) < n_clusters) {
+    stop("Número de observações menor que o número de clusters.")
+  }
+  
+  # Aplicar o k-means
+  kmeans_result <- kmeans(numeric_scaled, centers = n_clusters, nstart = 25)
+  
+  # Adicionar o cluster resultante ao dataframe original
+  data <- data %>%
+    mutate(kmeans_cluster = kmeans_result$cluster)
+  
+  return(data)
+}
+
+# Aplicar o processo para cada grupo da coluna "cluster"
+resultados <- dados_cluster_fcu %>%
+  group_by(cluster) %>%
+  group_split() %>%
+  map_dfr(~ realiza_kmeans(.x))
+
+# Resultado final com todas as categorias unidas
+resultados_finais <- resultados %>%
+  arrange(cluster, id_hex)
+
+# Visualizar o resultado
+head(resultados_finais)
+
+
+
+#três categorias
+
+hex_medias_km3<-resultados_finais%>%
+  select(-id_hex)%>%
+  group_by(cluster, kmeans_cluster)%>%
+  summarize(across(everything(),
+                   mean,
+                   na.rm=T))
+
+cont<-resultados_finais%>%group_by(cluster, kmeans_cluster)%>%
+  tally()
+
+precariedade_df <- data.frame(
+  cluster = c("clust5", "clust3", "clust4", "clust7", "clust2", 
+              "clust4", "clust6", "clust1", "clust3", "clust5", 
+              "clust6", "clust7", "clust2", "clust1", "clust2", 
+              "clust6", "clust7", "clust3", "clust4", "clust1", 
+              "clust5"),
+  kmeans_cluster = c(3, 2, 3, 3, 3, 2, 2, 1, 1, 1, 1, 1, 2, 2, 1, 
+                     3, 2, 3, 1, 3, 2),
+  Precariedade = c("ALTA", "ALTA", "ALTA", "ALTA", "ALTA", 
+                   "MÉDIA", "ALTA", "ALTA", "MÉDIA", "MÉDIA", 
+                   "MÉDIA", "MÉDIA", "MÉDIA", "MÉDIA", "BAIXA", 
+                   "BAIXA", "BAIXA", "BAIXA", "BAIXA", "BAIXA", 
+                   "BAIXA"),
+  Cat_precariedade = c("clust5-A", "clust3-A", "clust4-A", "clust7-A", 
+                       "clust2-A", "clust4-M", "clust6-A", "clust1-A", 
+                       "clust3-M", "clust5-M", "clust6-M", "clust7-M", 
+                       "clust2-M", "clust1-M", "clust2-B", "clust6-B", 
+                       "clust7-B", "clust3-B", "clust4-B", "clust1-B", 
+                       "clust5-B")
+)
+
+
+resultados_classificados<-resultados_finais %>%
+  left_join(precariedade_df, by = c("cluster", "kmeans_cluster"))
+resultados_classificados<-resultados_classificados%>%select(id_hex,Precariedade,Cat_precariedade)
+
+dados_fcu_final<-dados_fcu%>%left_join(resultados_classificados,by="id_hex")
+  
+#salvar grade com clusters
+write_sf(dados_fcu_final,"D:/Arquivos/2024/Mestrado/projeto_gilmara/Dezembro/analise_precariedade22/hex2022_fcu.gpkg")
+
+
+```
+```
+
+

@@ -1,0 +1,399 @@
+---
+title: "Dados_outros"
+output: 
+  html_document:
+    df_print: paged
+---
+
+#Pacotes necessários
+```{r, echo=FALSE,error=FALSE, warning=FALSE, message=FALSE}
+#abrindo as bibliotecas necessárias
+library(data.table)
+library(broom)
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+library(knitr)
+library(DT)
+library(geobr)
+library(sf)
+library(lwgeom)
+library(rgdal)
+library(readxl)
+library(cleangeo)
+library(maptools)
+library(dplyr)
+```
+
+# Processamento das variáveis censitárias por município
+```{r}
+#notacao cientifica
+options(scipen=999)
+
+```
+# Dados do PIB
+```{r}
+#Dados PIB
+
+#Abrir arquivos
+
+dados_municipios<-read_csv("outputs/dados_municipios.csv", locale=locale(encoding='latin1'))
+
+#arquivo pib, seleção do ano mais recente e das variáveis de interesse
+pib<-read_excel("PIB/PIB dos Municípios - base de dados 2010-2019.xls")%>%
+  filter(Ano=="2019")
+
+#seleção das variáveis
+  pib<- pib%>%select(`Código do Município`,
+         `Nome do Município`,
+         `Produto Interno Bruto, \na preços correntes\n(R$ 1.000)`,                                                                     `Produto Interno Bruto per capita, \na preços correntes\n(R$ 1,00)`)%>%
+    #simplificando o nome das variáveis
+    rename(pib_bruto_mil="Produto Interno Bruto, \na preços correntes\n(R$ 1.000)",
+           pib_percapita="Produto Interno Bruto per capita, \na preços correntes\n(R$ 1,00)",
+           Cod_municipio="Código do Município")
+
+  #União dos dados
+  dados_municipios<- dados_municipios%>%left_join(pib,by="Cod_municipio")
+  
+```
+
+
+# Dados Atlas Brasil
+```{r}
+#Abrindo dados
+dados_atlas2013<-read_delim("Atlas Brasil/Atlas2013.csv", delim=";",locale=locale(encoding='UTF-8',decimal_mark=","))%>%
+  filter(ANO=="2010")%>%
+  select(Codmun7, 
+         Município, 
+         CORTE1,
+         GINI,
+         PIND,
+         RDPC,
+         THEIL,
+         T_DENS,
+         PAREDE,
+         I_ESCOLARIDADE,
+         I_FREQ_PROP,
+         IDHM,
+         IDHM_E,
+         IDHM_L,
+         IDHM_R)%>%
+rename(Cod_municipio=Codmun7)
+
+#Juntando os dados
+dados_municipios<- dados_municipios %>%left_join(dados_atlas2013, by= "Cod_municipio")
+
+#Abrindo planilha de registros admnistrativo - dados IDEB
+dados_atlas_reg<-read_delim("Atlas Brasil/registroadm_total.csv", delim=";",locale=locale(encoding='UTF-8',decimal_mark=","))%>%
+  filter(ANO=="2017")%>%
+  select(IBGE7,
+         IDEB_AI,
+         IDEB_AF)%>%
+rename(Cod_municipio=IBGE7)
+
+#Juntando os dados
+dados_municipios<- dados_municipios %>%left_join(dados_atlas_reg, by= "Cod_municipio")
+
+
+```
+
+# Dados SIMU
+```{r}
+#Planilha emissão de poluentes
+dados_emissaopol<-read_delim("SIMU/mar2022/Emissao-de-Poluentes.csv", delim=",",locale=locale(encoding='UTF-8',decimal_mark=","))%>%
+  filter(ano=="2018")%>%
+  select(`Código IBGE`,
+         Emissao_CO,
+         Emissao_NOx,
+         Emissao_NMHC,
+         Emissao_RCHO,
+         Emissao_MPcomb,
+         Emissao_CO2e,
+         Porcentagem_energia_renovavel)%>%
+  rename(Cod_municipio=`Código IBGE`)
+
+#correções
+#subsitituindo NA por NULL
+dados_emissaopol[is.na(dados_emissaopol)]<- "0"
+
+#correção de categorias das colunas numericas
+dados_emissaopol<-lapply(dados_emissaopol,as.numeric)
+
+#a função lapply transforma em lista, é preciso aplicar data.frame para converter de volta
+dados_emissaopol<-data.frame(dados_emissaopol)
+
+#Juntando os dados
+dados_municipios<- dados_municipios%>%left_join(dados_emissaopol, by="Cod_municipio")
+
+#Planilha acidentes de transporte
+dados_acidentes<-read_delim("SIMU/mar2022/Acidentes-de-Transportes.csv", delim=",",locale=locale(encoding='UTF-8',decimal_mark=","))%>%
+  filter(ano=="2018")%>%
+  select(`Código IBGE`,
+    taxa_mun_mortes,
+    taxa_mun_pedestre_mortes,
+    taxa_mun_ciclista_mortes,
+    taxa_mun_motociclista_mortes,
+    taxa_mun_automovel_mortes,
+    taxa_mun_onibus_mortes)%>%
+  rename(Cod_municipio="Código IBGE")
+
+#correções
+#subsitituindo NA por NULL
+dados_acidentes[is.na(dados_acidentes)]<- "0"
+
+#correção de categorias das colunas numericas
+dados_acidentes<-lapply(dados_acidentes,as.numeric)
+
+#a função lapply transforma em lista, é preciso aplicar data.frame para converter de volta
+dados_acidentes<-data.frame(dados_acidentes)
+
+#Juntando os dados
+dados_municipios<- dados_municipios%>%left_join(dados_acidentes, by="Cod_municipio")
+
+#pesquisa nacional de mobilidade
+dados_frota<-read_delim("SIMU/mar2022/Infraestrutura-de-Mobilidade-Urbana.csv", delim=",",locale=locale(encoding='UTF-8',decimal_mark=",")) %>%
+  filter(ano=="2019")%>%
+    rename(Cod_municipio="Código IBGE")  %>%
+  distinct(Cod_municipio,frota,frota_populacao)
+
+#correções
+#subsitituindo NA por NULL
+dados_frota[is.na(dados_frota)]<- "0"
+
+#correção de categorias das colunas numericas
+dados_frota<-lapply(dados_frota,as.numeric)
+
+#a função lapply transforma em lista, é preciso aplicar data.frame para converter de volta
+dados_frota<-data.frame(dados_frota)
+
+#Juntando os dados
+dados_municipios<- dados_municipios%>%left_join(dados_frota, by="Cod_municipio")
+
+
+```
+
+
+# Dados MUNIC 2020
+```{r}
+#pesquisa MUNIC habitação
+dados_mhab<-read_delim("MUNIC 2020/HABITACAO.csv", delim=";",locale=locale(encoding='UTF-8',decimal_mark=",")) %>%
+    rename(Cod_municipio="CodMun")  %>%
+  select(Cod_municipio,
+         Mhab07,
+         Mhab18,
+         Mhab191,
+         Mhab192,
+         Mhab193,
+         Mhab194,
+         Mhab195,
+         Mhab201,
+         Mhab202,
+         Mhab203,
+         Mhab204,
+         Mhab205,
+         Mhab206,
+         Mhab207,
+         Mhab208,
+         Mhab21)%>%
+  #Recodificando os dados do dataframe
+  mutate_at(vars(
+  starts_with("Mhab")),
+         funs(case_when(
+           .=="Sim"~"1",
+           .=="Não"~"2",
+           .=="Não informou"~"0",
+           .=="Recusa"~"0")))
+
+#correção de categorias das colunas numericas
+dados_mhab<-lapply(dados_mhab,as.numeric)
+
+#a função lapply transforma em lista, é preciso aplicar data.frame para converter de volta
+dados_mhab<-data.frame(dados_mhab)
+
+#Juntando os dados
+dados_municipios<- dados_municipios%>%left_join(dados_mhab, by="Cod_municipio")
+
+#pesquisa MUNIC Transporte
+dados_mtrans<-read_delim("MUNIC 2020/TRANSPORTE.csv", delim=";",locale=locale(encoding='UTF-8',decimal_mark=","))%>%
+    rename(Cod_municipio="CodMun")  %>%
+  select(Cod_municipio,
+         Mtra07,
+         Mtra181,
+         Mtra182,
+         Mtra183,
+         Mtra184,
+         Mtra185,
+         Mtra186,
+         Mtra187,
+         Mtra188,
+         Mtra189,
+         Mtra19,
+         Mtra23,
+         Mtra231,
+         Mtra24,
+         Mtra25) %>%
+  mutate_at(vars(
+  starts_with("Mtra")),
+         funs(case_when(
+           .=="Sim"~"1",
+           .=="Não"~"2",
+           .=="Não informou"~"0",
+           .=="Recusa"~"0")))
+
+#correção de categorias das colunas numericas
+dados_mtrans<-lapply(dados_mtrans,as.numeric)
+
+#a função lapply transforma em lista, é preciso aplicar data.frame para converter de volta
+dados_mtrans<-data.frame(dados_mtrans)
+
+#Juntando os dados
+dados_municipios<- dados_municipios%>%left_join(dados_mtrans, by="Cod_municipio")
+
+
+```
+
+# Dados de Aglomerados Subnormais 2019
+```{r}
+#pesquisa Aglomerados Subnormais
+dados_agsn<-read_excel("Aglomerados Subnormais/Municipios_AGSN.xlsx")%>%
+    rename(Cod_municipio="CD_MUN")%>%
+  select(Cod_municipio,
+        EDOC_total,
+        EDOC_AGSN,
+        PER_AGSN,
+        EST_POP_19)%>%
+  mutate(Cod_municipio=as.numeric(Cod_municipio))
+
+#completando dados faltantes
+dados_agsn[is.na(dados_agsn)]<- 0
+str(dados_municipios)
+
+#Juntando os dados
+dados_municipios<- dados_municipios%>%left_join(dados_agsn, by="Cod_municipio")
+
+```
+
+# Dados SUS
+
+```{r}
+#Dados SUS
+
+#abrindo dados de estabelecimentos
+dados_sus<-read_delim("outputs/UBS_mun.csv", delim=",",
+                                 locale=locale(encoding='latin1',
+                                       decimal_mark = "."))
+
+#Join final
+dados_municipios<- dados_municipios %>%left_join(dados_sus, by=c("Cod_municipio"="Cd_mncp"))
+  
+```
+
+
+# Dados MCMV
+```{r}
+
+mcmv<- read_delim("MCMV/MCMV.csv", 
+           delim=",",
+          locale=locale(encoding='UTF-8',
+          decimal_mark = "."))
+
+#abrindo dados atlas
+dados_at2<-read_delim("Atlas Brasil/atlas2013.csv", delim=";",
+                                 locale=locale(encoding='latin1',
+                                       decimal_mark = ","))%>%
+  select(Codmun6,Codmun7)%>%
+  rename(IBGE= Codmun6)%>%
+distinct(Codmun7, IBGE)
+
+mcmv<- mcmv%>%left_join(dados_at2, by=c("COD_IBGE"="IBGE"))%>%
+  filter(Faixa_de_r=="Faixa 1")%>%
+  select(Codmun7, UH, Concluidas)%>%
+  group_by(Codmun7)%>%
+  summarize(UH_mcmv= sum(UH),
+            UH_mcmv_c=sum(Concluidas) )
+
+dados_municipios<- dados_municipios%>%left_join(mcmv, by=c("Cod_municipio"="Codmun7"))
+
+```
+# Dados OpenStreetMap
+```{r}
+roads<-read_delim("OSM/roads_br_.csv",
+                          delim=",",
+                          locale=locale(encoding='UTF-8',
+                                       decimal_mark = "."))
+str(roads)                  
+roads_type<- roads%>%
+  group_by(CD_MUN,code)%>%
+  summarize(lenght_code= sum(lenght_m))
+
+roads_unpave<- roads_type%>%
+  filter(code=="5144"|code=="5145"|code=="5146"|code=="5147")%>%
+  group_by(CD_MUN)%>%
+  summarize(unpaved_km=sum(lenght_code)/1000)
+
+roads_mun<- roads%>%
+  group_by(CD_MUN)%>%
+  summarize(lenght_total_km= sum(lenght_m)/1000)
+roads_mun<- left_join(roads_mun,roads_unpave, by="CD_MUN")
+
+
+#juntando dados na base final
+dados_municipios<- dados_municipios%>%left_join(roads_mun, by=c("Cod_municipio"="CD_MUN"))
+
+#criando variáveis de densidade viária
+dados_municipios<- dados_municipios %>% mutate(dens_viaria= lenght_total_km/(AREA/1000000),
+                                               dens_viaria_urb= lenght_total_km/(area_urb/1000000))
+
+#eliminando o problema da divisão por zero na coluna dens_viaria_urb
+  
+dados_municipios<- dados_municipios%>% mutate(dens_viaria_urb=case_when(dens_viaria_urb==Inf~0,
+                                      TRUE~dens_viaria_urb))
+
+#verificar valores de uma coluna
+table(dados_municipios$dens_viaria_urb)
+
+```
+# Dado Região Metropolitana
+```{r}
+rm<-read_excel("Regiões Metropolitanas/Composicao_RMs_RIDEs_AglomUrbanas_2020_12_31.xlsx")%>%
+  select(TIPO,COD_MUN)%>%
+  filter(TIPO=="RM")
+
+#juntando dados na base final
+dados_municipios<- dados_municipios%>%left_join(rm, by=c("Cod_municipio"="COD_MUN"))%>%
+  mutate(rm=case_when(TIPO=="RM"~1,TRUE~0))
+
+
+```
+#Organizando e limpando os dados
+```{r}
+#calculo de área por km2
+dados_municipios<- dados_municipios%>% mutate(area_km2=AREA/1000000,
+                                             area_urb_km2=area_urb/1000000 )
+#eliminando colunas desnecessárias
+dados_municipios<- dados_municipios %>%select(-code_region,-code_state,-AREA,-Município,-`Nome do Município`,-...1.y,-IBGE, -TIPO,-area_urb)
+
+
+dados_municipios[is.na(dados_municipios)]<-0
+
+#eliminando linha duplicada pelo dado de região metropolitana
+dados_municipios<- dados_municipios%>%distinct(Cod_municipio, name_muni,.keep_all=T) 
+
+
+```
+
+
+# Salvando arquivos finais
+```{r}
+# salva o shapefile/CSV
+write.csv(dados_municipios,"outputs/dados_mun.csv")
+
+
+#lendo arquivo geográfico
+mun_BR<-read_sf("outputs/mun_BR_dados.shp")%>%
+  select(Cd_mncp)
+#arquivo geo completo
+mun_BR<- mun_BR%>%left_join(dados_municipios, by=c("Cd_mncp"="Cod_municipio"))
+#salvando arquivo
+write_sf(mun_BR, "outputs/mun_BR.shp")
+```

@@ -1,0 +1,1471 @@
+---
+title: "Exploratoria_dados2024"
+output: html_document
+date: "2024-06-26"
+---
+
+#Pacotes necessários
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+library(data.table)
+library(broom)
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+library(knitr)
+library(DT)
+library(readxl)
+library(cleangeo)
+library(corrplot)
+
+library(dplyr)
+library(Rtsne) #plot do pam
+
+#Pacotes clusterizacao
+library(skimr) # Summary statistics
+library(mclust) # Model based clustering
+library(cluster) # Cluster analysis
+library(factoextra) # Visualizing distances
+library(hopkins)#analise de tendencia de cluster
+library(NbClust)
+library(fpc)
+library(kamila)
+#pacotes de mapa
+library(geobr) 
+library(plotly)
+library(tmap)
+library(spData)
+library(leaflet)
+library(sf)
+library(lwgeom)
+library(car)
+library(purrr)
+library(DataExplorer)
+library(rnaturalearth)
+
+library(gridExtra)
+#install.packages("DataExplorer")
+
+#install.packages("rnaturalearth")
+#install.packages("tidygraph")
+#install.packages("sfnetworks")
+
+library(tidygraph)
+library(sfnetworks)
+#notacao cientifica
+options(scipen=999)
+setwd("C:/Users/gilma/OneDrive/Área de Trabalho/2022/Master project/Dados Pesquisa")
+
+```
+
+# Abrindo os arquivos
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+dados_2024<-read_csv("outputs2024/dados_mun2024_v4.csv", locale=locale(encoding='utf8'))
+
+dados_2024<-dados_2024%>%select(-Mhab191,-Mhab192,-Mhab193,-Mhab194,-Mtra19,-Mtra23,-...1, -EDOC_AGSN,-...2)
+
+pam_forma<-read_csv("outputs2024/pam_forma.csv", locale=locale(encoding='utf8'))%>%
+  select(-...1)teste<-read_delim("outputs2024/teste.csv", delim=";",locale=locale(encoding='utf8'))
+
+```
+
+# Padronizando variáveis
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+
+#Padronizar variaveis
+
+dados_padrao<- dados_2024[,-1]#retirando o código do municipio porque não quero padronizar
+
+row.names(dados_padrao)<- dados_2024$Cod_municipio #rotulando as linhas com o código do municipio
+
+dados_padrao<-dados_padrao%>%select(-name_muni)
+
+dados_padrao<- scale(dados_padrao)%>%  #padronizando
+data.frame()
+row.names(dados_padrao)<- dados_2024$Cod_municipio #rotulando as linhas com o código do municipio
+
+```
+
+# Analise exploratoria
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+
+# Resumo estatístico dos dados
+summary<-summary(dados_2024)%>%
+  data.frame()
+
+# Contar valores faltantes por coluna
+colSums(is.na(dados_2024))
+
+# Boxplot interativo para uma variável específica
+au <- plot_ly(dados_2024, y = ~Palma, type = "box", text = ~name_muni, boxpoints = "outliers") %>%
+  add_trace(type = 'scatter', mode = 'markers', x = c(1), y = mean(dados_2024$Palma, na.rm = TRUE), marker = list(symbol = 'cross', size = 10, color = 'red'), name = 'Média') %>%
+  layout(title = "Boxplot Interativo da Área Urbana em km²", yaxis = list(title = "índice de Palma"))
+au
+
+
+#Box plot por variável
+dados_2024%>%  ggplot()+
+  geom_boxplot(aes(y=Palma))+
+      ggtitle("índice de Palma")+
+  ylab("Indice de Palma")
+
+# Adicionar uma coluna fictícia x ao dataframe
+dados_2024 <- dados_2024 %>% mutate(x = "")
+
+# Criar boxplot com ggplot2 e adicionar a média
+boxplot_ggplot <- dados_2024 %>%
+  ggplot(aes(x = x, y = porc_areaurb)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  geom_text(aes(label = ifelse(porc_areaurb %in% boxplot.stats(porc_areaurb)$out, as.character(name_muni), '')),
+            hjust = 1.5, vjust = 1.5, size = 3, color = "red") +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "blue", fill = "blue") +
+  ggtitle("Porcentagem da Área Municipal Urbanizada") +
+  ylab("Porcentagem da Área Municipal Urbanizada") +
+  theme_minimal()
+
+# Tornar o boxplot interativo com plotly
+boxplot_interativo <- ggplotly(boxplot_ggplot)
+
+# Visualizar o boxplot interativo
+boxplot_interativo
+
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+#primeiros dados
+# Supondo que seus dados tenham várias variáveis que você quer visualizar
+# Substitua 'variavel1', 'variavel2', etc. pelos nomes das suas variáveis
+variaveis_interesse <- c("area_urb", "AREA_KM2", "POP2022", "porc_areaurb")
+
+# Transformar dados para formato longo
+dados_long <- dados_2024 %>%
+  select(name_muni, all_of(variaveis_interesse)) %>%
+  pivot_longer(cols = variaveis_interesse, names_to = "variavel", values_to = "valor")
+
+# Função para identificar outliers
+find_outliers <- function(x) {
+  q1 <- quantile(x, 0.25)
+  q3 <- quantile(x, 0.75)
+  iqr <- q3 - q1
+  lower_bound <- q1 - 1.5 * iqr
+  upper_bound <- q3 + 1.5 * iqr
+  return(x < lower_bound | x > upper_bound)
+}
+
+# Adicionar coluna de outliers
+dados_long <- dados_long %>%
+  group_by(variavel) %>%
+  mutate(is_outlier = find_outliers(valor))
+
+# Criar boxplot com ggplot2 e adicionar a média
+boxplot_ggplot <- dados_long %>%
+  ggplot(aes(x = variavel, y = valor)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  geom_text(aes(label = ifelse(is_outlier, as.character(name_muni), '')),
+            hjust = 1.5, vjust = 1.5, size = 3, color = "red") +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "blue", fill = "blue") +
+  facet_wrap(~ variavel, scales = "free") +
+  ggtitle("Boxplots das Variáveis de Interesse com Média e Outliers") +
+  ylab("Valor") +
+  theme_minimal()
+
+# Tornar o boxplot interativo com plotly
+boxplot_interativo <- ggplotly(boxplot_ggplot)
+
+# Visualizar o boxplot interativo
+boxplot_interativo
+
+
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+#dados2
+# Supondo que seus dados tenham várias variáveis que você quer visualizar
+# Substitua 'variavel1', 'variavel2', etc. pelos nomes das suas variáveis
+variaveis_interesse2 <- c("dens_pop_urb", "cres_geom","pib_percapita")
+
+# Transformar dados para formato longo
+dados_long2 <- dados_2024 %>%
+  select(name_muni, all_of(variaveis_interesse2)) %>%
+  pivot_longer(cols = variaveis_interesse2, names_to = "variavel", values_to = "valor")
+
+# Função para identificar outliers
+find_outliers <- function(x) {
+  q1 <- quantile(x, 0.25)
+  q3 <- quantile(x, 0.75)
+  iqr <- q3 - q1
+  lower_bound <- q1 - 1.5 * iqr
+  upper_bound <- q3 + 1.5 * iqr
+  return(x < lower_bound | x > upper_bound)
+}
+
+# Adicionar coluna de outliers
+dados_long2 <- dados_long2 %>%
+  group_by(variavel) %>%
+  mutate(is_outlier = find_outliers(valor))
+
+# Criar boxplot com ggplot2 e adicionar a média
+boxplot_ggplot <- dados_long2 %>%
+  ggplot(aes(x = variavel, y = valor)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  geom_text(aes(label = ifelse(is_outlier, as.character(name_muni), '')),
+            hjust = 1.5, vjust = 1.5, size = 3, color = "red") +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "blue", fill = "blue") +
+  facet_wrap(~ variavel, scales = "free") +
+  ggtitle("Boxplots das Variáveis de Interesse com Média e Outliers") +
+  ylab("Valor") +
+  theme_minimal()
+# Tornar o boxplot interativo com plotly
+boxplot_interativo <- ggplotly(boxplot_ggplot)
+
+# Visualizar o boxplot interativo
+boxplot_interativo
+
+#Geográfico
+mun_BR<-read_sf("censo 2022/BR_Municipios_2022.shp")
+
+mun_BR<- mun_BR%>%
+  rename(Cd_mncp="CD_MUN")%>%
+  mutate(Cd_mncp= as.numeric(Cd_mncp))
+
+mun_BR<-mun_BR%>%left_join(dados_2024,by=c("Cd_mncp"="Cod_municipio"))
+
+#Analise exploratoria
+Mapa_exp<-tm_shape(mun_BR) +
+    tm_polygons(c("dens_pop_urb", "cres_geom","pib_percapita"), 
+           palette="Spectral",
+           style="quantile",
+           lwd=NA,
+            title=c("dens_pop_urb", "cres_geom","pib_percapita", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("dens_pop_urb", "cres_geom","pib_percapita"))+
+  tmap_mode("view")+
+tm_basemap(NULL)+  
+  tm_borders()
+
+
+
+Mapa_exp<-tm_shape(mun_BR) +
+    tm_polygons(c("dens_pop_urb"), 
+           palette="Spectral",
+           style="quantile",
+           lwd=NA,
+           popup.vars = "name_muni",
+            title=c("dens_pop_urb", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("dens_pop_urb"))+
+  tmap_mode("view")+
+tm_basemap(NULL)+  
+  tm_borders()
+
+Mapa_exp
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+#dados 3
+# Supondo que seus dados tenham várias variáveis que você quer visualizar
+# Substitua 'variavel1', 'variavel2', etc. pelos nomes das suas variáveis
+variaveis_interesse3 <- c("dist_mar", "numero_desastres_p")
+
+# Transformar dados para formato longo
+dados_long3 <- dados_2024 %>%
+  select(name_muni, all_of(variaveis_interesse3)) %>%
+  pivot_longer(cols = variaveis_interesse3, names_to = "variavel", values_to = "valor")
+
+# Função para identificar outliers
+find_outliers <- function(x) {
+  q1 <- quantile(x, 0.25)
+  q3 <- quantile(x, 0.75)
+  iqr <- q3 - q1
+  lower_bound <- q1 - 1.5 * iqr
+  upper_bound <- q3 + 1.5 * iqr
+  return(x < lower_bound | x > upper_bound)
+}
+
+# Adicionar coluna de outliers
+dados_long3 <- dados_long3 %>%
+  group_by(variavel) %>%
+  mutate(is_outlier = find_outliers(valor))
+
+# Criar boxplot com ggplot2 e adicionar a média
+boxplot_ggplot <- dados_long3 %>%
+  ggplot(aes(x = variavel, y = valor)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  geom_text(aes(label = ifelse(is_outlier, as.character(name_muni), '')),
+            hjust = 1.5, vjust = 1.5, size = 3, color = "red") +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "blue", fill = "blue") +
+  facet_wrap(~ variavel, scales = "free") +
+  ggtitle("Boxplots das Variáveis de Interesse com Média e Outliers") +
+  ylab("Valor") +
+  theme_minimal()
+boxplot_ggplot
+
+# Tornar o boxplot interativo com plotly
+boxplot_interativo <- ggplotly(boxplot_ggplot)
+
+# Visualizar o boxplot interativo
+boxplot_interativo
+
+
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+#dados 4
+# Supondo que seus dados tenham várias variáveis que você quer visualizar
+# Substitua 'variavel1', 'variavel2', etc. pelos nomes das suas variáveis
+variaveis_interesse4 <- c("contig", "slope_mean","dens_int_au")
+
+# Transformar dados para formato longo
+dados_long4 <- dados_2024 %>%
+  select(name_muni, all_of(variaveis_interesse4)) %>%
+  pivot_longer(cols = variaveis_interesse4, names_to = "variavel", values_to = "valor")
+
+# Função para identificar outliers
+find_outliers <- function(x) {
+  q1 <- quantile(x, 0.25)
+  q3 <- quantile(x, 0.75)
+  iqr <- q3 - q1
+  lower_bound <- q1 - 1.5 * iqr
+  upper_bound <- q3 + 1.5 * iqr
+  return(x < lower_bound | x > upper_bound)
+}
+
+# Adicionar coluna de outliers
+dados_long4 <- dados_long4 %>%
+  group_by(variavel) %>%
+  mutate(is_outlier = find_outliers(valor))
+
+# Criar boxplot com ggplot2 e adicionar a média
+boxplot_ggplot2 <- dados_long4 %>%
+  ggplot(aes(x = variavel, y = valor)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  geom_text(aes(label = ifelse(is_outlier, as.character(name_muni), '')),
+            hjust = 1.5, vjust = 1.5, size = 3, color = "red") +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "blue", fill = "blue") +
+  facet_wrap(~ variavel, scales = "free") +
+  ggtitle("Boxplots das Variáveis de Interesse com Média e Outliers") +
+  ylab("Valor") +
+  theme_minimal()
+boxplot_ggplot2
+
+# Tornar o boxplot interativo com plotly
+boxplot_interativo2 <- ggplotly(boxplot_ggplot2)
+
+# Visualizar o boxplot interativo
+boxplot_interativo2
+
+
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+#dados 5
+# Supondo que seus dados tenham várias variáveis que você quer visualizar
+# Substitua 'variavel1', 'variavel2', etc. pelos nomes das suas variáveis
+variaveis_interesse5 <- c("PER_AGSN", "porc_mais1h","frota_populacao")
+
+# Transformar dados para formato longo
+dados_long5 <- dados_2024 %>%
+  select(name_muni, all_of(variaveis_interesse5)) %>%
+  pivot_longer(cols = variaveis_interesse5, names_to = "variavel", values_to = "valor")
+
+
+
+# Adicionar coluna de outliers
+dados_long5 <- dados_long5 %>%
+  group_by(variavel) %>%
+  mutate(is_outlier = find_outliers(valor))
+
+# Criar boxplot com ggplot2 e adicionar a média
+boxplot_ggplot3 <- dados_long5 %>%
+  ggplot(aes(x = variavel, y = valor)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  geom_text(aes(label = ifelse(is_outlier, as.character(name_muni), '')),
+            hjust = 1.5, vjust = 1.5, size = 3, color = "red") +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "blue", fill = "blue") +
+  facet_wrap(~ variavel, scales = "free") +
+  ggtitle("Boxplots das Variáveis de Interesse com Média e Outliers") +
+  ylab("Valor") +
+  theme_minimal()
+boxplot_ggplot3
+
+# Tornar o boxplot interativo com plotly
+boxplot_interativo3 <- ggplotly(boxplot_ggplot3)
+
+# Visualizar o boxplot interativo
+boxplot_interativo3
+
+```
+
+```{r}
+#dados6
+# Substitua 'variavel1', 'variavel2', etc. pelos nomes das suas variáveis
+variaveis_interesse5 <- c("Palma")
+
+# Transformar dados para formato longo
+dados_long5 <- dados_2024 %>%
+  select(name_muni, all_of(variaveis_interesse5)) %>%
+  pivot_longer(cols = variaveis_interesse5, names_to = "variavel", values_to = "valor")
+
+
+# Adicionar coluna de outliers
+dados_long5 <- dados_long5 %>%
+  group_by(variavel) %>%
+  mutate(is_outlier = find_outliers(valor))
+
+# Criar boxplot com ggplot2 e adicionar a média
+boxplot_ggplot3 <- dados_long5 %>%
+  ggplot(aes(x = variavel, y = valor)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  geom_text(aes(label = ifelse(is_outlier, as.character(name_muni), '')),
+            hjust = 1.5, vjust = 1.5, size = 3, color = "red") +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "blue", fill = "blue") +
+  facet_wrap(~ variavel, scales = "free") +
+  ggtitle("Boxplots das Variáveis de Interesse com Média e Outliers") +
+  ylab("Valor") +
+  theme_minimal()
+boxplot_ggplot3
+
+# Tornar o boxplot interativo com plotly
+boxplot_interativo3 <- ggplotly(boxplot_ggplot3)
+
+# Visualizar o boxplot interativo
+boxplot_interativo3
+
+
+
+```
+
+
+
+```{r}
+dados<-dados_2024%>%select(-name_muni, -Cod_municipio, -dens_viaria)
+
+
+cor_matrix <- cor(dados,use = "complete.obs")
+
+# Visualização da matriz de correlação
+#install.packages("corrplot")
+library(corrplot)
+corrplot(cor_matrix, method = "circle")
+
+
+
+```
+
+```{r}
+dados_padrao<-dados_padrao%>%select(-pib_percapita,-POP2022,-porc_areaurb,-dens_viaria)
+
+pca <- prcomp(dados_padrao)
+summary(pca)
+
+pca
+variance_explained <- c(0.2004, 0.3418, 0.4799, 0.5855, 0.66737, 0.73569, 
+                        0.79772, 0.85139, 0.89953, 0.94481, 0.97463, 1.00000)
+
+# Data frame para o gráfico
+elbow_data <- data.frame(
+  PC = 1:length(variance_explained),
+  VarianceExplained = variance_explained)
+
+# Gráfico de linha
+ggplot(elbow_data, aes(x = PC, y = VarianceExplained)) +
+  geom_line(color = "blue") +
+  geom_point(color = "blue", size = 2) +
+  labs(x = "Número de Componentes Principais (PCs)",
+       y = "Variância Acumulada Explicada",
+       title = "Critério do Cotovelo (Elbow Method)") +
+  theme_minimal()
+
+resultado_bartlett <- bartlett.test(dados_padrao)
+resultado_bartlett
+
+#BOXPLOT TODOS
+m1<- melt(as.data.frame(dados_padrao))
+#Box plot com outliers
+ggplot(m1, aes(x=variable,y=value))+
+  geom_boxplot()+
+  facet_wrap(~variable, scale="free")
+
+```
+
+```{r}
+#analise de numero de clusters
+# Vetor de soma dos quadrados intra-cluster (wss) para diferentes números de clusters
+wss <- numeric(length = 10)  # ajuste o número máximo de clusters conforme necessário
+
+for (i in 1:10) {
+  kmeans_model <- kmeans(dados_padrao, centers = i)
+  wss[i] <- kmeans_model$tot.withinss
+}
+
+# Plot do método do cotovelo (elbow)
+plot(1:10, wss, type = "b", pch = 19, frame = FALSE, xlab = "Número de Clusters",
+     ylab = "Soma dos Quadrados Intra-cluster (WSS)")
+
+#METODO SILHOUETTE
+
+fviz_nbclust(dados_padrao, kmeans, method = "wss") +
+   labs(subtitle = "Elbow method")
+
+# Silhouette method
+fviz_nbclust(dados_padrao, kmeans, method = "silhouette")+
+  labs(subtitle = "Silhouette method")
+
+
+#Numero ótimo 6
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE}
+#seleção das variáveis baseado no cluster k=6;
+
+clust_sel<- dados_padrao
+set.seed(6893)
+
+
+#Clusters com n=2
+km2 <- kmeans(dados_padrao, 2)
+
+#Clusters com n=3
+km3 <- kmeans(dados_padrao, 3)
+#Clusters com n=4
+km4 <- kmeans(dados_padrao, 4)
+#Clusters com n=5
+km5 <- kmeans(dados_padrao, 5)
+#Clusters com n=6
+km6 <- kmeans(dados_padrao, 6)
+#Clusters com n=7
+km7 <- kmeans(dados_padrao, 7)
+#Clusters com n=8
+km8 <- kmeans(dados_padrao, 8)
+#Clusters com n=9
+km9 <- kmeans(dados_padrao, 9)
+#Clusters com n=10
+km10 <- kmeans(dados_padrao, 10)
+
+
+#Juntando os k-means ao banco de dados espaciais
+dados_clust<-dados_padrao %>%
+  mutate(km2 = km2$cluster,
+         km3 = km3$cluster,
+         km4 = km4$cluster,
+          km5 = km5$cluster,
+          km6 = km6$cluster,
+          km7 = km7$cluster,
+          km8 = km8$cluster,
+          km9 = km9$cluster,
+          km10 = km10$cluster)%>% 
+  select(km2,km3,km4,km5,km6,km7,km8,km9,km10)
+
+
+#rownames to collumn
+dados_clust <- tibble::rownames_to_column(dados_clust, "Cod_municipio")
+#correção de categorias das colunas numericas
+dados_clust<-lapply(dados_clust,as.numeric)%>%
+  data.frame()
+
+#Geográfico
+mun_BR<-read_sf("censo 2022/BR_Municipios_2022.shp")
+
+mun_BR<- mun_BR%>%
+  rename(Cd_mncp="CD_MUN")%>%
+  mutate(Cd_mncp= as.numeric(Cd_mncp))
+
+mun_BR<-mun_BR%>%left_join(dados_clust,by=c("Cd_mncp"="Cod_municipio"))
+
+
+
+
+#junção aos dados numéricos originais (sem padronização)
+dados_clust<- dados_clust %>%left_join(dados_2024, by="Cod_municipio")
+
+
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+#Gráfico de mapas 
+#seleção das variáveis baseado no cluster k=6;
+
+clust_forma<- dados_padrao%>%select(slope_mean,AREA_KM2, contig,porc_areaurb, dist_mar,dens_int_au)
+
+cor_matrix <- cor(clust_forma,use = "complete.obs")
+
+# Visualização da matriz de correlação
+corrplot(cor_matrix, method = "circle")
+
+
+fviz_nbclust(clust_forma, pam, method = "wss") +
+   labs(subtitle = "Elbow method")
+
+set.seed(6262)
+#Clusters com n=3, nstart =25 para o código tentar primeiro 25 diferentes grupos antes de tentar selecionar o melhor resultado, algoritmo programado para nstart=1
+
+k3 <- kmeans(clust_forma, 3, nstart=25)
+#Clusters com n=4
+k4 <- kmeans(clust_forma, 4, nstart=25)
+#Clusters com n=5
+k5 <- kmeans(clust_forma, 5, nstart=25)
+
+k3 #chamada para ver resultados
+k3$cluster
+k3$size
+k3centroide<-k3$centers
+
+k4#chamada para ver resultados
+k4$size
+k4centroide<-k4$centers
+k5#chamada para ver resultados
+
+# plots to compare #gráfico resultados, com pca
+
+p3 <- fviz_cluster(k3, geom = "point",  data = clust_forma) + ggtitle("k = 3")
+p4 <- fviz_cluster(k4, geom = "point",  data = clust_forma) + ggtitle("k = 4")
+p5 <- fviz_cluster(k5, geom = "point",  data = clust_forma) + ggtitle("k = 5")
+
+#grid para visualização dos graficos
+grid.arrange( p5, p3, p4, nrow = 2)
+
+#gráfico resultados, sem pca
+
+clust_forma %>%  as_tibble() %>%
+  mutate(cluster = k4$cluster,
+         state = dados_2024$name_muni) %>%
+  ggplot(aes(contig, slope_mean, color = factor(cluster), label = state)) +
+  geom_text()
+
+set.seed(123)
+gap_stat <- clusGap(clust_forma, FUN = kmeans, nstart = 25,
+                    K.max = 10, B = 50)
+fviz_gap_stat(gap_stat)
+
+
+#NbClust
+help("NbClust")
+
+set.seed(1)
+res<-NbClust(dados_padrao, distance = "euclidean", min.nc = 2, max.nc = 15, 
+
+method = "kmeans", index = "all", alphaBeale = 0.1)
+
+#com todos os dados o NbClust sugeriu 2 como melhor número
+
+res$All.index
+res$Best.nc
+res$All.CriticalValues
+res$Best.partition
+
+#NbClust para ward  -sugeriu 2
+set.seed(1)
+res<-NbClust(dados_padrao, distance = "euclidean", min.nc = 2, max.nc = 15, 
+
+method = "ward.D2", index = "all")
+
+
+#NbClust para clust_formas 
+set.seed(1)
+res<-NbClust(clust_forma, distance = "euclidean", min.nc = 3, max.nc = 10, 
+
+method = "kmeans", index = "all")
+
+
+
+#Juntando os k-means ao banco de dados espaciais
+dados_clust3<-dados_padrao %>%
+  mutate( k3 = k3$cluster,
+          k4 = k4$cluster,
+    k5 = k5$cluster)%>% 
+  select(k3,k4,k5)
+
+
+
+
+#rownames to collumn
+dados_clust3 <- tibble::rownames_to_column(dados_clust3, "Cod_municipio")
+#correção de categorias das colunas numericas
+dados_clust3<-lapply(dados_clust3,as.numeric)%>%
+  data.frame()
+
+#Geográfico
+mun_BR3<-mun_BR%>%left_join(dados_clust3,by=c("Cd_mncp"="Cod_municipio"))
+
+#Primeiro k-means com todas as variáveis
+Mapa_kmeans3<-tm_shape(mun_BR3) +
+    tm_polygons(c("k3","k4","k5"), 
+           palette="Spectral",
+           style="cat",
+           lwd=NA,
+            title=c("k3","k4","k5", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("k3","k4","kmeans k=5"))
+Mapa_kmeans3
+
+
+
+write_sf(mun_BR, "outputs2024/mun_BR_cluster.shp")
+
+
+#junção aos dados numéricos originais (sem padronização)
+dados_clust3<- dados_clust3 %>%left_join(dados_2024, by="Cod_municipio")
+
+
+#Cluter k=3 segundok-means
+cluster_k3<- dados_clust3%>% select(-Cod_municipio)%>% 
+  group_by(k3)%>%
+  summarise_all("mean")
+
+#Cluter k=4 segundok-means
+cluster_k4<- dados_clust3%>% select(-Cod_municipio)%>% 
+  group_by(k4)%>%
+  summarise_all("mean")
+
+#Cluter k=5 segundok-means
+cluster_k5<- dados_clust3%>% select(-Cod_municipio)%>% 
+  group_by(k5)%>%
+  summarise_all("mean")
+
+
+
+
+
+
+#junção aos dados numéricos originais (sem padronização)
+dados_clust3<- dados_clust3 %>%left_join(dados_2024, by="Cod_municipio")%>%data.frame()
+
+
+```
+
+```{r}
+#Primeiro k-means com todas as variáveis
+Mapa_kmeans<-tm_shape(mun_BR) +
+    tm_polygons(c("km3","km4","km5", "km6", "km7", "km8", "km9", "km10"), 
+           palette="Spectral",
+           style="cat",
+           lwd=NA,
+            title=c("km3","km4","km5", "km6", "km7", "km8", "km9", "km10", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("kmeans k=3","kmeans k=4","kmeans k=5", "kmeans k=6", "kmeans k=7", "kmeans k=8", "kmeans k=9", "kmeans k=10"))
+Mapa_kmeans
+
+```
+
+
+
+## Analise e salvando os clusters
+```{r message=FALSE, warning=FALSE}
+
+# Primeiro k-means
+
+#Cluter k=6 primeiro k-means
+cluster_k6<- dados_clust%>% select(-Cod_municipio)%>% 
+  group_by(k6)%>%
+  summarise_all("mean")
+
+#salvando arquivo
+write.csv(cluster_k6, "outputs2024/cluster_k6.csv")
+
+#Dados Totais da Clusterização com dados selecionados
+dados_clust<- dados_municipios%>% select(Cod_municipio, name_muni, abbrev_state)%>%
+  left_join(dados_clust, by= c("Cod_municipio"="Cd_mncp"))
+write.csv(dados_clust, "outputs2024/clust_kmeans.csv")
+
+# Segundo k-means
+
+#k-means k=7
+clustv2_7<- dados_clust_v2%>% select(-Cd_mncp)%>%
+  group_by(k7)%>%
+  summarise_all("mean")
+
+write.csv(clustv2_7, "outputs/cluster_7.csv")
+k7[["size"]]
+
+
+#Cluster_v2 k=5
+clusterv2_k5<- dados_clust_v2%>%select(-Cd_mncp)%>%
+  group_by(k5)%>%
+  summarise_all("mean")
+
+write.csv(clusterv2_k5, "outputs/clusterv2_k5.csv")
+
+#Dados Totais da segunda Clusterização com dados selecionados
+dados_clust_v2<- dados_municipios%>% select(Cod_municipio, name_muni,abbrev_state)%>%
+  left_join(dados_clust_v2, by= c("Cod_municipio"="Cd_mncp"))
+write.csv(dados_clust_v2, "outputs/clust_kmeans_v2.csv")
+
+#salvando o shapefile
+mun_BR<-mun_BR%>% select(Cd_mncp, km2,km3,km4,km5,km6,km7,km8,km9,km10,k2,k3,k4,k5,k6,k7,k8)%>%
+  left_join(dados_municipios, by= c("Cd_mncp"="Cod_municipio"))
+
+
+
+```
+#HIERARCHICAL CLUSTER
+
+```{r}
+
+# Compute the dissimilarity matrix
+# df = the standardized data
+
+dados_select<-dados_padrao%>%select(slope_mean,dist_mar,porc_areaurb, contig, dens_pop_urb,dens_int_au, PER_AGSN,porc_mais1h,frota_populacao,numero_desastres_p,Palma)
+
+res.dist <- dist(dados_select, method = "euclidean")
+as.matrix(res.dist)
+
+#testando com ward.d2
+res.hc <- hclust(d = res.dist, method = "ward.D2")
+
+# cex: label size
+fviz_dend(res.hc, cex = 0.2)
+
+# Definindo o número de clusters
+k <- 10
+
+# Cortando a árvore em k clusters
+clusters <- cutree(res.hc, k = k)
+
+# Visualizando os clusters no dendrograma
+fviz_dend(res.hc, k = k, rect = TRUE, show_labels = FALSE)
+
+
+# Compute cophentic distance
+res.coph <- cophenetic(res.hc)
+# Correlation between cophenetic distance and
+# the original distance The closer the value of the correlation coecient is to 1, the more accurately the clustering solution reflects your data. Values above 0.75 are felt to be good.
+cor(res.dist, res.coph)  #0.3984079
+
+#testando com average
+res.hc2 <- hclust(res.dist, method = "average")
+cor(res.dist, cophenetic(res.hc2))# 0.9473799
+
+```
+
+```{r}
+# Cut tree into 4 groups
+grp <- cutree(res.hc, k = 6)
+# Number of members in each cluster
+table(grp)
+#grp   1    2    3    4 
+#     2582 2912   73    3 
+
+#grp
+#   1    2    3    4    5    6 
+# 721 2912 1861   70    3    3
+
+# Cut in 46 groups and color by groups
+fviz_dend(res.hc, k = 6, # Cut in four groups
+cex = 0.5, # label size
+k_colors = c("#2E9FDF", "#00AFBB", "#E7B800", "#FC4E07","pink","violet"),
+color_labels_by_k = TRUE, # color labels by groups
+rect = TRUE) # Add rectangle around groups
+
+
+fviz_cluster(list(data = dados_padrao, cluster = grp),
+palette = c("#2E9FDF", "#00AFBB", "#E7B800", "#FC4E07", "pink","violet"),
+ellipse.type = "convex", # Concentration ellipse
+repel = TRUE, # Avoid label overplotting (slow)
+show.clust.cent = FALSE, ggtheme = theme_minimal())
+
+grp
+
+dados_clust3<-dados_clust3 %>%
+  mutate( hiera = grp)
+
+write.csv(dados_clust3, "outputs2024/clust_testes.csv")
+```
+
+#Duas clusterizações - utilizando método PAM, devido os outliers
+```{r}
+#FORMA URBANA
+set.seed(123)
+clust_forma<- dados_padrao%>%select(slope_mean,AREA_KM2, contig, dist_mar,dens_int_au)%>%
+  arrange(sample(n()))
+
+cor_matrix <- cor(clust_forma,use = "complete.obs")
+
+
+fviz_nbclust(clust_forma, pam, method = "wss") +
+   labs(subtitle = "Elbow method")
+
+
+
+#NÚMERO DE CLUSTERS
+fviz_nbclust(clust_forma, pam, method = "silhouette")+
+theme_classic()
+
+
+#clusterização pam formas
+set.seed(123)
+pam.res <- pam(clust_forma, 3, nstart = 50)
+
+fviz_cluster(pam.res,
+palette = c("#00AFBB", "#FC4E07","#E7B800"), # color palette
+ellipse.type = "t", # Concentration ellipse
+ggthem)
+
+
+fviz_cluster(pam.res)
+pam.res
+pam.res$clusinfo
+
+plot(pam.res)
+fviz_silhouette(silhouette(pam.res))
+
+pam_forma <- dados_2024 %>%
+  mutate(pam_forma = pam.res$clustering)%>%
+  select(Cod_municipio, name_muni,pam_forma)
+
+#Geográfico
+mun <- read_municipality(code_muni="all", year=2022)
+
+#junção ao espacial
+mun_pam<-mun%>%left_join(pam_forma,by=c("code_muni"="Cod_municipio"))
+
+Mapa_pam<-tm_shape(mun_pam) +
+    tm_polygons(c("pam_forma"), 
+           palette="Spectral",
+           style="cat",
+           lwd=NA,
+           popup.vars = "name_muni.x",
+            title=c("PAM forma k=3", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("PAM k=4"))+
+    tmap_mode("view")+
+tm_basemap(NULL)+    
+  tm_shape(estados)+
+  tm_borders()
+
+
+Mapa_pam
+
+pam_forma_an <- dados_2024 %>%
+  mutate(pam_forma = pam.res$clustering)%>%
+  group_by(pam_forma)%>%
+  select(slope_mean,AREA_KM2, contig, dist_mar,dens_int_au)%>%
+  summarise_all("mean")
+
+write.csv(pam_forma, "outputs2024/pam_forma.csv")
+write_sf(mun_pam,"outputs2024/mun_pam_forma.shp")
+
+
+```
+
+#teste todas
+```{r}
+
+#TESTE todas
+set.seed(126)
+clust<- dados_padrao%>%select(slope_mean,AREA_KM2, contig, dist_mar,dens_int_au,PER_AGSN,porc_mais1h,frota_populacao,numero_desastres_p,Palma)%>%
+  arrange(sample(n()))
+
+cor_matrix <- cor(clust,use = "complete.obs")
+
+
+# Visualização da matriz de correlação
+corrplot(cor_matrix, method = "circle")
+
+
+fviz_nbclust(clust, kmeans, method = "wss") +
+   labs(subtitle = "Elbow method")
+
+
+#NÚMERO DE CLUSTERS
+fviz_nbclust(clust, kmeans, method = "silhouette")+
+theme_classic()
+
+
+
+#clusterização pam todas
+set.seed(123)
+pam.res <- pam(clust, 5, nstart = 50)
+
+fviz_cluster(pam.res,
+palette = c("#00AFBB", "#FC4E07","#E7B800", "pink", "green"), # color palette
+ellipse.type = "t", # Concentration ellipse
+ggthem)
+
+fviz_cluster(pam.res)
+pam.res
+pam.res$clusinfo
+
+plot(pam.res)
+fviz_silhouette(silhouette(pam.res))
+
+pam_todos <- dados_2024 %>%
+  mutate(pam_todos = pam.res$clustering)%>%
+  select(Cod_municipio, name_muni,pam_todos)
+
+analise_forma<-clust_forma%>%mutate(pam_forma=pam.res$clustering)
+
+analise_forma<- analise_forma%>%group_by(pam_forma)%>%
+  summarise_all(mean)
+
+#Geográfico
+mun_BR<-read_sf("censo 2022/BR_Municipios_2022.shp")
+
+
+
+mun <- read_municipality(code_muni="all", year=2022)
+estados<-read_state(code_state = "all",year=2020)
+
+mun_BR<- mun_BR%>%
+  rename(Cd_mncp="CD_MUN")%>%
+  mutate(Cd_mncp= as.numeric(Cd_mncp))
+
+
+
+#junção ao espacial
+mun_pam<-mun%>%left_join(pam_todos,by=c("code_muni"="Cod_municipio"))
+
+Mapa_pam<-tm_shape(mun_pam) +
+    tm_polygons(c("pam_todos"), 
+           palette="Spectral",
+           style="cat",
+           lwd=NA,
+            popup.vars = "name_muni.x",
+            title=c("PAM k=5", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("PAM k=5"))+
+    tmap_mode("view")+
+tm_basemap(NULL)+  
+  tm_borders(estados)
+
+Mapa_pam
+
+
+#Cluster_v2 k=4
+analise_k4<-dados_2024%>%mutate(pam_k4=pam.res$clustering)
+
+cluster_k4<- analise_k4%>%select(-Mhab191,-Mhab192,-Mhab193,-Mhab194,-Mtra19,-Mtra23,-...1, -EDOC_AGSN,-...2, -name_muni)%>%
+  group_by(pam_k4)%>%
+  summarise_all("mean")
+
+analise_k5<-dados_2024%>%mutate(pam_k5=pam.res$clustering)%>%
+  group_by(pam_k5)%>%
+  summarise_all("mean")
+
+
+write.csv(pam_forma, "outputs2024/pam_forma.csv")
+write_sf(mun_pam,"outputs2024/mun_pam_forma.shp")
+
+```
+```{r}
+#clusterização pam todas kmeans
+set.seed(123)
+kmeans.res <- kmeans(clust,4, nstart = 50)
+
+fviz_cluster(kmeans.res, geom = "point",  data = clust) + ggtitle("n = 4")
+
+
+fviz_cluster(kmeans.res)
+kmeans.res$size
+
+
+kmeans_todos <- dados_2024 %>%
+  mutate(km_todos = kmeans.res$cluster)%>%
+  select(Cod_municipio, name_muni,km_todos)
+
+#Geográfico
+
+#junção ao espacial
+mun_km<-mun%>%left_join(kmeans_todos,by=c("code_muni"="Cod_municipio"))
+
+Mapa_km<-tm_shape(mun_km) +
+    tm_polygons(c("km_todos"), 
+           palette="Spectral",
+           style="cat",
+           lwd=NA,
+            popup.vars = "name_muni.x",
+            title=c("kmeans n=4", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("kmeans n=4"))+
+    tmap_mode("view")+
+tm_basemap(NULL)+  
+  tm_borders(estados)
+
+Mapa_km
+
+
+#Cluster_v2 k=4
+
+
+analise_k4<-dados_2024%>%mutate(k4=kmeans.res$cluster)%>%
+  group_by(k4)%>%
+  summarise_all("mean")
+
+
+write.csv(pam_forma, "outputs2024/pam_forma.csv")
+write_sf(mun_pam,"outputs2024/mun_pam_forma.shp")
+
+```
+
+
+
+
+
+```{r}
+
+# DESIGUALDADE SOCIOAMBIENTAL
+set.seed(123)
+clust_desigualdade<-dados_padrao%>% select(PER_AGSN,porc_mais1h,frota_populacao,numero_desastres_p,Palma)%>%
+  arrange(sample(n()))
+
+#NÚMERO DE CLUSTERS
+fviz_nbclust(clust_desigualdade, pam, method = "silhouette")+
+theme_classic()
+
+set.seed(123)
+despam.re3 <- pam(clust_desigualdade, 3, nstart = 50)
+
+
+fviz_cluster(despam.re3,
+palette = c("#00AFBB", "#FC4E07","green"), # color palette
+ellipse.type = "t", # Concentration ellipse
+ggthem)
+
+fviz_cluster(despam.re3)
+
+despam.re3$clusinfo
+
+plot(despam.re3)
+fviz_silhouette(silhouette(despam.re3))
+
+pam_desigualdade <- dados_2024 %>%
+  mutate(pam_d3=despam.re3$clustering)%>%
+  select(Cod_municipio, name_muni,pam_d3)
+
+
+#junção ao espacial
+mun_pam_d<-mun%>%left_join(pam_desigualdade,by=c("code_muni"="Cod_municipio"))
+
+#Primeiro k-means com todas as variáveis
+Mapa_pamd<-tm_shape(mun_pam_d) +
+    tm_polygons(c("pam_d3"), 
+           palette="Spectral",
+           style="cat",
+           lwd=NA,
+               popup.vars = "name_muni.x",
+            title=c("pam_d3", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("pam_forma","pam_d2","pam_d3", "pam_todos"))+
+  tmap_mode("view")+
+tm_basemap(NULL)+    
+  tm_shape(estados)+
+  tm_borders()
+
+Mapa_pamd
+
+
+
+pam_des_an <- dados_2024 %>%
+  mutate(pam_d3 = despam.re3$clustering)%>%
+  group_by(pam_d3)%>%
+  summarise_all("mean")%>%
+  select(PER_AGSN,porc_mais1h,frota_populacao,numero_desastres_p,Palma)
+
+write.csv(pam_desigualdade, "outputs2024/pam_desigual.csv")
+write_sf(mun_pam,"outputs2024/mun_pam.shp")
+```
+
+```{r}
+#DBSCAN
+library(dbscan)
+
+dbscan_result <- dbscan(clust, eps = 0.5, minPts = 5)
+
+#Mapa_dbscan
+Mapa_db<-tm_shape(mun_t) +
+    tm_polygons(c("db_t"), 
+           palette="Spectral",
+           style="cat",
+           lwd=NA,
+               popup.vars = "name_muni.x",
+            title=c("pam n=4", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("pam n=4"))+
+  tmap_mode("view")+
+tm_basemap(NULL)+    
+  tm_shape(estados)+
+  tm_borders()
+
+Mapa_db
+```
+
+
+
+
+```{r}
+#teste 29/07/2024
+set.seed(245)
+clust<- dados_padrao%>% select(PER_AGSN,slope_mean,numero_desastres_p,Palma,contig,dens_int_au,dens_pop_urb, AREA_KM2,porc_mais1h, POP2022)%>%  arrange(sample(n()))
+
+
+
+#Matriz correlacao
+cor_matrix <- cor(clust,use = "complete.obs")
+
+# Visualização da matriz de correlação
+corrplot(cor_matrix, method = "circle")
+
+#NÚMERO DE CLUSTERS PAM
+fviz_nbclust(clust, pam, method = "silhouette")+
+theme_classic()
+
+fviz_nbclust(clust, pam, method = "wss") +
+   labs(subtitle = "Elbow method")
+
+#NÚMERO DE CLUSTERS KMEANS
+fviz_nbclust(clust, kmeans, method = "silhouette")+
+theme_classic()
+
+fviz_nbclust(clust, kmeans, method = "wss") +
+   labs(subtitle = "Elbow method")
+
+#CLUSTERIZAÇÃO KMEANS
+
+set.seed(123)
+kmeans_t <- kmeans(clust, 5, nstart = 50)
+
+#CLUSTERIZAÇÃO PAM
+set.seed(123)
+pam_t <- pam(clust, 4, nstart = 50)
+
+fviz_cluster(pam_t,
+palette = c("#00AFBB", "#FC4E07","green","yellow", "orange", "violet"), # color palette
+ellipse.type = "t", # Concentration ellipse
+ggthem)
+
+fviz_cluster(pam_t)
+
+pam_t$clusinfo
+fviz_silhouette(silhouette(pam_t))
+
+kmeans_t$size
+
+#junção dados
+
+teste <- dados_2024 %>%
+  mutate( k_t=kmeans_t$cluster,
+          pam_t=pam_t$clustering)%>%
+  select(Cod_municipio, name_muni, k_t,pam_t)
+
+
+#junção ao espacial
+mun_t<-mun%>%left_join(teste,by=c("code_muni"="Cod_municipio"))
+
+#Primeiro k-means com todas as variáveis
+Mapa_km<-tm_shape(mun_t) +
+    tm_polygons(c("k_t"), 
+           palette="Spectral",
+           style="cat",
+           lwd=NA,
+               popup.vars = "name_muni.x",
+            title=c("kmeans n=8", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("kmeans n=5"))+
+  tmap_mode("view")+
+tm_basemap(NULL)+    
+  tm_shape(estados)+
+  tm_borders()
+
+Mapa_km
+
+
+#Mapa_pam
+Mapa_pam<-tm_shape(mun_t) +
+    tm_polygons(c("pam_t"), 
+           palette="Spectral",
+           style="cat",
+           lwd=NA,
+               popup.vars = "name_muni.x",
+            title=c("pam n=4", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("pam n=4"))+
+  tmap_mode("view")+
+tm_basemap(NULL)+    
+  tm_shape(estados)+
+  tm_borders()
+
+Mapa_pam
+
+
+teste_an <- dados_2024 %>%
+  mutate(k_t = kmeans_t$cluster)%>%
+  group_by(k_t)%>%
+  summarise_all("mean")%>%
+  select(PER_AGSN,dist_mar,slope_mean,numero_desastres_p,Palma,contig, dens_int_au,porc_mais1h,AREA_KM2)
+
+teste_pam <- dados_2024 %>%
+  mutate(pam_t = pam_t$clustering)%>%
+  group_by(pam_t)%>%
+  summarise_all("mean")%>%
+  select(PER_AGSN,slope_mean,numero_desastres_p,Palma,contig,dens_int_au,dens_pop_urb, AREA_KM2)
+
+
+
+```
+##forma urbana
+```{r}
+
+#teste 29/07/2024
+#FORMA URBANA
+set.seed(345)
+clust_forma<- dados_padrao%>%select(slope_mean, contig, dist_mar,dens_int_au,dens_pop_urb)
+
+#Matriz correlacao
+cor_matrix <- cor(clust_forma,use = "complete.obs")
+
+# Visualização da matriz de correlação
+corrplot(cor_matrix, method = "circle")
+
+#NÚMERO DE CLUSTERS PAM
+fviz_nbclust(clust_forma, pam, method = "silhouette")+
+theme_classic()
+
+fviz_nbclust(clust_forma, pam, method = "wss") +
+   labs(subtitle = "Elbow method")
+
+#CLUSTERIZAÇÃO PAM
+set.seed(345)
+pam_forma<- pam(clust_forma, 4, nstart = 20)
+
+fviz_cluster(pam_forma,
+palette = c("#00AFBB", "#FC4E07","green","yellow"), # color palette
+ellipse.type = "t", # Concentration ellipse
+ggthem)
+
+
+pam_forma$clusinfo
+fviz_silhouette(silhouette(pam_forma))
+
+
+#junção dados
+
+pam_forma_an <- dados_2024 %>%
+  mutate(pam=pam_forma$clustering)%>%
+  select(Cod_municipio, name_muni,pam)
+
+
+#junção ao espacial
+mun_t<-mun%>%left_join(pam_forma_an,by=c("code_muni"="Cod_municipio"))
+
+#PAM forma
+Mapa_pamf<-tm_shape(mun_t) +
+    tm_polygons(c("pam"), 
+           palette="Spectral",
+           style="cat",
+           lwd=NA,
+               popup.vars = "name_muni.x",
+            title=c("pam n=8", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("pam n=5"))+
+  tmap_mode("view")+
+tm_basemap(NULL)+    
+  tm_shape(estados)+
+  tm_borders()
+
+Mapa_pamf
+
+
+teste_pam <- dados_2024 %>%
+  mutate(pam = pam_forma$clustering)%>%
+  group_by(pam)%>%
+  summarise_all("mean")%>%
+  select(slope_mean, contig, dist_mar,dens_int_au,dens_pop_urb)
+
+
+write.csv(pam_forma_an, "outputs2024/pam_forma.csv")
+write_sf(mun_t,"outputs2024/mun_pam_forma.shp")
+
+```
+
+#Desigualdade
+```{r}
+# DESIGUALDADE SOCIOAMBIENTAL
+set.seed(123)
+clust_desigualdade<-dados_padrao%>% select(PER_AGSN,porc_mais1h,numero_desastres_p,Palma)%>%
+  arrange(sample(n()))
+
+teste2<-teste%>%arrange(sample(n()))
+
+#NÚMERO DE CLUSTERS
+fviz_nbclust(clust_desigualdade, pam, method = "silhouette")+
+theme_classic()
+
+set.seed(321)
+despam.re3 <- pam(clust_desigualdade, 3, nstart = 50)
+
+
+fviz_cluster(despam.re3,
+palette = c("#00AFBB", "#FC4E07","green"), # color palette
+ellipse.type = "t", # Concentration ellipse
+ggthem)
+
+fviz_cluster(despam.re3)
+
+despam.re3$clusinfo
+
+plot(despam.re3)
+fviz_silhouette(silhouette(despam.re3))
+summary(despam.re3)
+
+pam_desigualdade <- dados_2024 %>%
+  mutate(pam_d3=despam.re3$clustering)%>%
+  select(Cod_municipio, name_muni,pam_d3)
+
+
+#junção ao espacial
+mun_pam_d<-mun%>%left_join(pam_desigualdade,by=c("code_muni"="Cod_municipio"))
+
+#Primeiro k-means com todas as variáveis
+Mapa_pamd<-tm_shape(mun_pam_d) +
+    tm_polygons(c("pam_d3"), 
+           palette="Spectral",
+           style="cat",
+           lwd=NA,
+               popup.vars = "name_muni.x",
+            title=c("pam_d3", outer=NA)) +
+tm_legend(legend.format = list(text.separator= "a"))+
+tm_layout(legend.position = c("LEFT","BOTTOM"),
+           title = c("pam_forma","pam_d2","pam_d3", "pam_todos"))+
+  tmap_mode("view")+
+tm_basemap(NULL)+    
+  tm_shape(estados)+
+  tm_borders()
+
+Mapa_pamd
+
+
+
+pam_des_an <- dados_2024 %>%
+  mutate(pam_d3 = despam.re3$clustering)%>%
+  group_by(pam_d3)%>%
+  summarise_all("mean")%>%
+  select(PER_AGSN,porc_mais1h,frota_populacao,numero_desastres_p,Palma)
+
+write.csv(pam_desigualdade, "outputs2024/pam_desigual.csv")
+write_sf(mun_pam,"outputs2024/mun_pam.shp")
+
+```
+
+
